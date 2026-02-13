@@ -15,6 +15,7 @@ limitations under the License.
 
 package com.example.googlehomeapisampleapp.view.devices
 
+import android.util.Log
 import android.widget.Toast
 import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.layout.Arrangement
@@ -23,6 +24,7 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
@@ -31,6 +33,7 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Edit
+import androidx.compose.material.icons.filled.History
 import androidx.compose.material.icons.filled.KeyboardArrowDown
 import androidx.compose.material.icons.filled.KeyboardArrowUp
 import androidx.compose.material.icons.filled.Pause
@@ -48,13 +51,16 @@ import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Slider
+import androidx.compose.material3.Surface
 import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.key
 import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -64,24 +70,28 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.hilt.lifecycle.viewmodel.compose.hiltViewModel
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.example.googlehomeapisampleapp.MainActivity
 import com.example.googlehomeapisampleapp.camera.CameraStreamView
-import com.example.googlehomeapisampleapp.extension.ThermostatTraitExtension.getCoolingSetpoint
-import com.example.googlehomeapisampleapp.extension.ThermostatTraitExtension.getHeatingSetpoint
-import com.example.googlehomeapisampleapp.extension.ThermostatTraitExtension.getMaxCoolSetpointLimit
-import com.example.googlehomeapisampleapp.extension.ThermostatTraitExtension.getMaxHeatSetpointLimit
-import com.example.googlehomeapisampleapp.extension.ThermostatTraitExtension.getMinCoolSetpointLimit
-import com.example.googlehomeapisampleapp.extension.ThermostatTraitExtension.getMinHeatSetpointLimit
-import com.example.googlehomeapisampleapp.extension.ThermostatTraitExtension.getSystemMode
-import com.example.googlehomeapisampleapp.extension.ThermostatTraitExtension.isModeCoolingRelated
-import com.example.googlehomeapisampleapp.extension.ThermostatTraitExtension.isModeHeatingRelated
-import com.example.googlehomeapisampleapp.extension.ThermostatTraitExtension.isModeSupported
-import com.example.googlehomeapisampleapp.extension.ThermostatTraitExtension.isValidCoolingSetpointUpdate
-import com.example.googlehomeapisampleapp.extension.ThermostatTraitExtension.isValidHeatingSetpointUpdate
-import com.example.googlehomeapisampleapp.extension.ThermostatTraitExtension.setOccupiedCoolingPoint
-import com.example.googlehomeapisampleapp.extension.ThermostatTraitExtension.setOccupiedHeatingPoint
+import com.example.googlehomeapisampleapp.camera.CameraStreamViewModel
+import com.example.googlehomeapisampleapp.extension.thermostat.getCoolingSetpoint
+import com.example.googlehomeapisampleapp.extension.thermostat.getHeatingSetpoint
+import com.example.googlehomeapisampleapp.extension.thermostat.getMaxCoolSetpointLimit
+import com.example.googlehomeapisampleapp.extension.thermostat.getMaxHeatSetpointLimit
+import com.example.googlehomeapisampleapp.extension.thermostat.getMinCoolSetpointLimit
+import com.example.googlehomeapisampleapp.extension.thermostat.getMinHeatSetpointLimit
+import com.example.googlehomeapisampleapp.extension.thermostat.getSystemMode
+import com.example.googlehomeapisampleapp.extension.thermostat.isModeCoolingRelated
+import com.example.googlehomeapisampleapp.extension.thermostat.isModeHeatingRelated
+import com.example.googlehomeapisampleapp.extension.thermostat.isModeSupported
+import com.example.googlehomeapisampleapp.extension.thermostat.isValidCoolingSetpointUpdate
+import com.example.googlehomeapisampleapp.extension.thermostat.isValidHeatingSetpointUpdate
+import com.example.googlehomeapisampleapp.extension.thermostat.setOccupiedCoolingPoint
+import com.example.googlehomeapisampleapp.extension.thermostat.setOccupiedHeatingPoint
 import com.example.googlehomeapisampleapp.viewmodel.HomeAppViewModel
 import com.example.googlehomeapisampleapp.viewmodel.devices.DeviceViewModel
 import com.google.home.ConnectivityState
@@ -106,869 +116,904 @@ import com.google.home.matter.standard.TemperatureMeasurement
 import com.google.home.matter.standard.Thermostat
 import com.google.home.matter.standard.ThermostatTrait
 import com.google.home.matter.standard.WindowCovering
-import com.google.home.matter.standard.WindowCoveringTrait
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.launch
 import kotlin.math.roundToInt
 
 @Composable
-fun DeviceView (homeAppVM: HomeAppViewModel) {
-    val scope: CoroutineScope = rememberCoroutineScope()
-    val deviceVM: DeviceViewModel? by homeAppVM.selectedDeviceVM.collectAsState()
+fun DeviceView(homeAppVM: HomeAppViewModel) {
+  val scope: CoroutineScope = rememberCoroutineScope()
+  val deviceVM: DeviceViewModel? by homeAppVM.selectedDeviceVM.collectAsState()
 
-    BackHandler {
-        scope.launch { homeAppVM.selectedDeviceVM.emit(null) }
-    }
+  BackHandler {
+    scope.launch { homeAppVM.selectedDeviceVM.emit(null) }
+  }
 
-    deviceVM?.let { vm ->
-        val context = LocalContext.current
-        // Check if the selected device is a camera or a doorbell
-        val deviceType = vm.type.collectAsState().value
-        val isCameraDevice = deviceType.factory == GoogleCameraDevice
-        val isDoorbellDevice = deviceType.factory == GoogleDoorbellDevice
+  deviceVM?.let { vm ->
+    val context = LocalContext.current
+    val deviceType = vm.type.collectAsState().value
+    val isCameraDevice = deviceType.factory == GoogleCameraDevice
+    val isDoorbellDevice = deviceType.factory == GoogleDoorbellDevice
 
-        // Placeholder for the onShowSnackbar lambda required by CameraStreamView
-        val onShowSnackbar: (String) -> Unit = { message ->
-            Toast.makeText(context, message, Toast.LENGTH_SHORT).show()
+    val name by vm.name.collectAsState()
+    var showRenameDialog by remember { mutableStateOf(false) }
+    var showDeleteDialog by remember { mutableStateOf(false) }
+
+    LaunchedEffect(vm) {
+      vm.uiEventFlow.collect { event ->
+        when (event) {
+          is DeviceViewModel.UiEvent.ShowToast -> {
+            Toast.makeText(context, event.message, Toast.LENGTH_SHORT).show()
+          }
+          is DeviceViewModel.UiEvent.NavigateBack -> {
+            scope.launch { homeAppVM.selectedDeviceVM.emit(null) }
+          }
         }
-
-        LaunchedEffect(vm) {
-            vm.checkDecommissionEligibility()
-            vm.uiEventFlow.collect { event ->
-                when (event) {
-                    is DeviceViewModel.UiEvent.ShowToast -> {
-                        Toast.makeText(context, event.message, Toast.LENGTH_SHORT).show()
-                    }
-
-                    is DeviceViewModel.UiEvent.NavigateBack -> {
-                        scope.launch { homeAppVM.selectedDeviceVM.emit(null) }
-                    }
-                }
-            }
-        }
-
-        val name by vm.name.collectAsState()
-        var showRenameDialog by remember { mutableStateOf(false) }
-        var showDeleteDialog by remember { mutableStateOf(false) }
-
-        Column {
-            Spacer(Modifier.height(64.dp))
-            if (isCameraDevice || isDoorbellDevice) {
-                BackHandler {
-                    scope.launch { homeAppVM.selectedDeviceVM.emit(null) }
-                }
-                deviceVM?.let {vm ->
-                    // For a camera, doorbell,  render the dedicated CameraStreamView immediately
-                    CameraStreamView(
-                        deviceId = vm.id,
-                        paddingValues = PaddingValues(0.dp),
-                        onShowSnackbar = onShowSnackbar
-                    )
-                }
-            } else {
-                Box(modifier = Modifier.weight(1f)) {
-                    Column {
-                        Row(
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .padding(horizontal = 16.dp),
-                            verticalAlignment = Alignment.CenterVertically
-                        ) {
-                            Text(
-                                text = name,
-                                fontSize = 32.sp,
-                                modifier = Modifier
-                                    .weight(1f)
-                                    .padding(end = 8.dp)
-                            )
-
-                            Row(verticalAlignment = Alignment.CenterVertically) {
-                                // Share button shown for all devices
-                                IconButton(onClick = {
-                                    homeAppVM.homeApp.commissioningManager.requestShareDevice(vm.id)
-                                }) {
-                                    Icon(
-                                        imageVector = Icons.Default.Share,
-                                        contentDescription = "Share Device",
-                                        tint = MaterialTheme.colorScheme.primary
-                                    )
-                                }
-
-                                // Rename shown for all devices
-                                IconButton(onClick = { showRenameDialog = true }) {
-                                    Icon(
-                                        imageVector = Icons.Default.Edit,
-                                        contentDescription = "Rename Device",
-                                        tint = MaterialTheme.colorScheme.primary
-                                    )
-                                }
-
-                                IconButton(onClick = { showDeleteDialog = true }) {
-                                    Icon(
-                                        imageVector = Icons.Default.Delete,
-                                        contentDescription = "Delete Device",
-                                        tint = MaterialTheme.colorScheme.primary
-                                    )
-                                }
-                            }
-                        }
-
-                        // Rename dialog that allows the user to input a new device name
-                        if (showRenameDialog) {
-                            var newName by remember { mutableStateOf(name) }
-
-                            AlertDialog(
-                                onDismissRequest = { showRenameDialog = false },
-                                title = { Text("Rename Device") },
-                                text = {
-                                    OutlinedTextField(
-                                        value = newName,
-                                        onValueChange = { newName = it },
-                                        label = { Text("Device Name") }
-                                    )
-                                },
-                                confirmButton = {
-                                    TextButton(onClick = {
-                                        vm.rename(newName)
-                                        showRenameDialog = false
-                                    }) {
-                                        Text("Save")
-                                    }
-                                },
-                                dismissButton = {
-                                    TextButton(onClick = { showRenameDialog = false }) {
-                                        Text("Cancel")
-                                    }
-                                }
-                            )
-                        }
-
-                        // Delete Confirmation Dialog
-                        if (showDeleteDialog) {
-                            AlertDialog(
-                                onDismissRequest = { showDeleteDialog = false },
-                                title = { Text("Delete Device") },
-                                text = { Text("Are you sure you want to delete this device?") },
-                                confirmButton = {
-                                    TextButton(
-                                        onClick = {
-                                            showDeleteDialog = false
-                                            vm.deleteDevice()
-                                        }
-                                    ) {
-                                        Text("Delete")
-                                    }
-                                },
-                                dismissButton = {
-                                    TextButton(onClick = { showDeleteDialog = false }) {
-                                        Text("Cancel")
-                                    }
-                                }
-                            )
-                        }
-
-                        Column(
-                            modifier = Modifier
-                                .verticalScroll(rememberScrollState())
-                                .weight(1f, fill = false)
-                        ) {
-                            ControlListComponent(homeAppVM)
-                        }
-                    }
-                }
-            }
-        }
-    }
-}
-
-@Composable
-fun ControlListComponent (homeAppVM: HomeAppViewModel) {
-
-    val deviceVM: DeviceViewModel = homeAppVM.selectedDeviceVM.collectAsState().value ?: return
-    val deviceType: DeviceType = deviceVM.type.collectAsState().value
-    val deviceTypeName: String = deviceVM.typeName.collectAsState().value
-    val deviceTraits: List<Trait> = deviceVM.traits.collectAsState().value
-
-    Column (Modifier
-        .padding(horizontal = 16.dp, vertical = 8.dp)
-        .fillMaxWidth()) {
-        Text(deviceTypeName, fontSize = 16.sp, fontWeight = FontWeight.SemiBold)
+      }
     }
 
-    for (trait in deviceTraits) {
-        ControlListItem(trait, deviceType)
-    }
-}
+    Column(modifier = Modifier.fillMaxSize()) {
+      Spacer(Modifier.height(64.dp))
 
-@Composable
-fun ControlListItem (trait: Trait, type: DeviceType) {
-    val scope: CoroutineScope = rememberCoroutineScope()
-
-    // Make connectivity reactive by keying off the type changes
-    // When deviceType updates (which happens in subscribeToType), this will recompose
-    val isConnected = remember(type) {
-        type.metadata.sourceConnectivity.connectivityState == ConnectivityState.ONLINE ||
-                type.metadata.sourceConnectivity.connectivityState == ConnectivityState.PARTIALLY_ONLINE
-    }
-
-    Box (Modifier.padding(horizontal = 24.dp, vertical = 8.dp)) {
-        when (trait) {
-            is OnOff -> {
-                Column (Modifier.fillMaxWidth()) {
-                    Text(trait.factory.toString(), fontSize = 20.sp)
-                    Text(DeviceViewModel.getTraitStatus(trait, type), fontSize = 16.sp)
-                }
-
-                Switch (checked = (trait.onOff == true), modifier = Modifier.align(Alignment.CenterEnd),
-                    onCheckedChange = { state ->
-                        scope.launch {
-                            try {
-                                if (state) trait.on() else trait.off()
-                            } catch (e: HomeException) {
-                                MainActivity.showWarning(this, "Toggling device on/off failed: ${e.message}")
-                            }
-                        }
-                    },
-                    enabled = isConnected
-                )
-            }
-            is LevelControl -> {
-                val level = trait.currentLevel
-                if (level != null) {
-                    val isSpeakerDevice = type.factory == SpeakerDevice
-
-                    if (isSpeakerDevice) {
-                        // For speakers, use 0-100 directly
-                        val currentVolumePercent = level.toInt().coerceIn(0, 100)
-
-                        Column {
-                            Spacer(Modifier.height(8.dp))
-                            Text("Volume Control", fontSize = 20.sp, fontWeight = FontWeight.Bold)
-                            Spacer(Modifier.height(16.dp))
-
-                            Box(Modifier.fillMaxWidth()) {
-                                Text("Volume", fontSize = 16.sp)
-                                Text(
-                                    text = "$currentVolumePercent%",
-                                    fontSize = 16.sp,
-                                    modifier = Modifier.align(Alignment.CenterEnd)
-                                )
-                            }
-
-                            LevelSlider(
-                                value = currentVolumePercent.toFloat(),
-                                low = 0f,
-                                high = 100f,
-                                steps = 0,
-                                modifier = Modifier.padding(top = 8.dp),
-                                onValueChange = { newValue ->
-                                    // Validate that value is in range
-                                    newValue in 0f..100f
-                                },
-                                onValueChangeFinished = { volumePercent ->
-                                    scope.launch {
-                                        try {
-                                            trait.moveToLevelWithOnOff(
-                                                level = volumePercent.toInt().toUByte(),
-                                                transitionTime = null,
-                                                optionsMask = LevelControlTrait.OptionsBitmap(),
-                                                optionsOverride = LevelControlTrait.OptionsBitmap()
-                                            )
-                                        } catch (e: HomeException) {
-                                            MainActivity.showWarning(this, "Volume control failed: ${e.message}")
-                                        }
-                                    }
-                                },
-                                isEnabled = isConnected
-                            )
-                        }
-                    } else {
-                        // For other devices (lights), use 0-254 scale
-                        Text(trait.factory.toString(), fontSize = 20.sp)
-                        LevelSlider(
-                            value = level.toFloat(),
-                            low = 0f, high = 254f, steps = 0,
-                            modifier = Modifier.padding(top = 16.dp),
-                            onValueChangeFinished = { value: Float ->
-                                scope.launch {
-                                    try {
-                                        trait.moveToLevelWithOnOff(
-                                            level = value.toInt().toUByte(),
-                                            transitionTime = null,
-                                            optionsMask = LevelControlTrait.OptionsBitmap(),
-                                            optionsOverride = LevelControlTrait.OptionsBitmap()
-                                        )
-                                    } catch (e: HomeException) {
-                                        MainActivity.showWarning(this, "Level control command failed: ${e.message}")
-                                    }
-                                }
-                            },
-                            isEnabled = isConnected
-                        )
-                    }
-                }
-            }
-            is BooleanState -> {
-                Column (Modifier.fillMaxWidth()) {
-                    Text(trait.factory.toString(), fontSize = 20.sp)
-                    Text(DeviceViewModel.getTraitStatus(trait, type), fontSize = 16.sp)
-                }
-            }
-            is OccupancySensing -> {
-                Column (Modifier.fillMaxWidth()) {
-                    Text(trait.factory.toString(), fontSize = 20.sp)
-                    Text(DeviceViewModel.getTraitStatus(trait, type), fontSize = 16.sp)
-                }
-            }
-            is Thermostat -> {
-                ThermostatControl(
-                    trait = trait,
-                    isConnected = isConnected,
-                    scope = scope
-                )
-            }
-            is DoorLock -> {
-                val lockState: DoorLockTrait.DlLockState? = trait.lockState
-                val isLocked: Boolean = lockState == DoorLockTrait.DlLockState.Locked
-                val requiresPin: Boolean? = trait.requirePinforRemoteOperation
-
-                var showPinDialog by remember { mutableStateOf(false) }
-                var pinInput by remember { mutableStateOf("") }
-                var isUnlocking by remember { mutableStateOf(false) }
-                var isProcessing by remember { mutableStateOf(false) }
-
-                Column(Modifier.fillMaxWidth()) {
-                    Text("Door lock", fontSize = 20.sp)
-                    Text(if (isLocked) "Locked" else "Unlocked", fontSize = 16.sp)
-                }
-
-                // PIN dialog
-                if (showPinDialog) {
-                    AlertDialog(
-                        onDismissRequest = {
-                            if (!isProcessing) {
-                                showPinDialog = false
-                                pinInput = ""
-                            }
-                        },
-                        title = { Text(if (isUnlocking) "Enter PIN to Unlock" else "Enter PIN to Lock") },
-                        text = {
-                            OutlinedTextField(
-                                value = pinInput,
-                                onValueChange = {
-                                    if (it.all { c -> c.isDigit() } && it.length <= 8)
-                                        pinInput = it
-                                },
-                                label = { Text("PIN (4-8 digits)") },
-                                singleLine = true,
-                                enabled = !isProcessing
-                            )
-                        },
-                        confirmButton = {
-                            TextButton(
-                                onClick = {
-                                    isProcessing = true
-                                    scope.launch {
-                                        try {
-                                            val pin = pinInput.toByteArray()
-                                            if (isUnlocking) {
-                                                trait.unlockDoor { pinCode = pin }
-                                            } else {
-                                                trait.lockDoor { pinCode = pin }
-                                            }
-                                            showPinDialog = false
-                                            pinInput = ""
-                                        } catch (e: HomeException) {
-                                            MainActivity.showWarning(this, "Wrong PIN or operation failed: ${e.message}")
-                                        } finally {
-                                            isProcessing = false
-                                        }
-                                    }
-                                },
-                                enabled = pinInput.length >= 4 && !isProcessing
-                            ) {
-                                Text("OK")
-                            }
-                        },
-                        dismissButton = {
-                            TextButton(
-                                onClick = {
-                                    showPinDialog = false
-                                    pinInput = ""
-                                },
-                                enabled = !isProcessing
-                            ) {
-                                Text("Cancel")
-                            }
-                        }
-                    )
-                }
-
-                Switch(
-                    checked = isLocked,
-                    modifier = Modifier.align(Alignment.CenterEnd),
-                    onCheckedChange = { shouldLock ->
-                        if (requiresPin == true) {
-                            // Device requires PIN - show dialog immediately
-                            isUnlocking = !shouldLock
-                            showPinDialog = true
-                        } else {
-                            // Device doesn't require PIN (or unknown) - attempt operation directly
-                            isProcessing = true
-                            scope.launch {
-                                try {
-                                    if (shouldLock) {
-                                        trait.lockDoor()
-                                    } else {
-                                        trait.unlockDoor()
-                                    }
-                                } catch (e: HomeException) {
-                                    // If operation fails due to credential requirement, show PIN dialog
-                                    val needsCredential = e.message?.contains("19") == true ||
-                                            e.message?.contains("credential", ignoreCase = true) == true ||
-                                            e.message?.contains("authentication", ignoreCase = true) == true
-
-                                    if (needsCredential) {
-                                        isUnlocking = !shouldLock
-                                        showPinDialog = true
-                                    } else {
-                                        MainActivity.showWarning(this, "Operation failed: ${e.message}")
-                                    }
-                                } finally {
-                                    isProcessing = false
-                                }
-                            }
-                        }
-                    },
-                    enabled = isConnected && !isProcessing
-                )
-            }
-            is FanControl -> {
-                FanControlComponent(
-                    trait = trait,
-                    isConnected = isConnected
-                )
-            }
-            is MediaPlayback -> {
-                MediaPlaybackControlComponent(
-                    trait = trait,
-                    isConnected = isConnected
-                )
-            }
-            is WindowCovering -> {
-                WindowCoveringControlComponent(
-                    trait = trait,
-                    isConnected = isConnected
-                )
-            }
-            is TemperatureMeasurement -> {
-                Column(Modifier.fillMaxWidth()) {
-                    Text("Temperature", fontSize = 20.sp)
-                    val measuredValue = trait.measuredValue
-                    val tempText = if (measuredValue != null) {
-                        "%.1f°C".format(measuredValue / 100.0)
-                    } else {
-                        "--"
-                    }
-                    Text(tempText, fontSize = 16.sp)
-                }
-            }
-            else -> return
-        }
-    }
-}
-@Composable
-fun FanControlComponent(
-    trait: FanControl,
-    isConnected: Boolean
-) {
-    val scope = rememberCoroutineScope()
-    val fanMode = trait.fanMode ?: FanControlTrait.FanModeEnum.Off
-    var sliderPosition by remember(fanMode) {
-        mutableFloatStateOf(
-            when (fanMode) {
-                FanControlTrait.FanModeEnum.Off -> 0f
-                FanControlTrait.FanModeEnum.Low -> 25f
-                FanControlTrait.FanModeEnum.Medium -> 50f
-                FanControlTrait.FanModeEnum.High -> 75f
-                else -> 0f
-            }
+      // Unified Header Row
+      Row(
+        modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp),
+        verticalAlignment = Alignment.CenterVertically
+      ) {
+        Text(
+          text = name,
+          fontSize = 28.sp,
+          modifier = Modifier.weight(1f),
+          maxLines = 1,
+          overflow = TextOverflow.Ellipsis
         )
-    }
 
-    fun percentageToFanMode(percentage: Float): FanControlTrait.FanModeEnum {
-        return when {
-            percentage == 0f -> FanControlTrait.FanModeEnum.Off
-            percentage <= 33f -> FanControlTrait.FanModeEnum.Low
-            percentage <= 66f -> FanControlTrait.FanModeEnum.Medium
-            else -> FanControlTrait.FanModeEnum.High
+        if (isCameraDevice || isDoorbellDevice) {
+          IconButton(onClick = { homeAppVM.openHistoryForDevice(vm) }) {
+            Icon(Icons.Default.History, "History", tint = MaterialTheme.colorScheme.primary)
+          }
         }
-    }
 
-    Column {
-        Spacer(Modifier.height(8.dp))
-        Box(Modifier.fillMaxWidth()) {
-            Text("Fan Mode", fontSize = 16.sp)
+        IconButton(onClick = { homeAppVM.homeApp.commissioningManager.requestShareDevice(vm.id) }) {
+          Icon(Icons.Default.Share, "Share", tint = MaterialTheme.colorScheme.primary)
+        }
 
-            var expanded by remember { mutableStateOf(false) }
-            Box(modifier = Modifier.align(Alignment.CenterEnd)) {
-                TextButton(
-                    onClick = { if (isConnected) expanded = true },
-                    enabled = isConnected
+        IconButton(onClick = { showRenameDialog = true }) {
+          Icon(Icons.Default.Edit, "Rename", tint = MaterialTheme.colorScheme.primary)
+        }
+
+        IconButton(onClick = { showDeleteDialog = true }) {
+          Icon(Icons.Default.Delete, "Delete", tint = MaterialTheme.colorScheme.primary)
+        }
+      }
+
+      // Body Content
+      if (isCameraDevice || isDoorbellDevice) {
+        Surface(modifier = Modifier.fillMaxSize()) {
+          key(vm.id) {
+            val cameraVm: CameraStreamViewModel = hiltViewModel(key = vm.id.toString())
+            val lifecycleOwner = androidx.lifecycle.compose.LocalLifecycleOwner.current
+
+            // Stop stream when backgrounded to prevent "Ghost Sessions"
+            DisposableEffect(lifecycleOwner) {
+              val observer = androidx.lifecycle.LifecycleEventObserver { _, event ->
+                if (event == androidx.lifecycle.Lifecycle.Event.ON_PAUSE ||
+                  event == androidx.lifecycle.Lifecycle.Event.ON_STOP
                 ) {
-                    Text(
-                        text = when (fanMode) {
-                            FanControlTrait.FanModeEnum.Off -> "Off"
-                            FanControlTrait.FanModeEnum.Low -> "Low"
-                            FanControlTrait.FanModeEnum.Medium -> "Medium"
-                            FanControlTrait.FanModeEnum.High -> "High"
-                            else -> "Unknown"
-                        },
-                        color = if (isConnected) {
-                            MaterialTheme.colorScheme.primary
-                        } else {
-                            MaterialTheme.colorScheme.onSurface.copy(alpha = 0.38f)
-                        }
-                    )
-                    Icon(
-                        imageVector = if (expanded) Icons.Default.KeyboardArrowUp else Icons.Default.KeyboardArrowDown,
-                        contentDescription = null
-                    )
+                  cameraVm.stopPlayerExternally()
                 }
-
-                DropdownMenu(
-                    expanded = expanded,
-                    onDismissRequest = { expanded = false }
-                ) {
-                    listOf(
-                        FanControlTrait.FanModeEnum.Off to "Off",
-                        FanControlTrait.FanModeEnum.Low to "Low",
-                        FanControlTrait.FanModeEnum.Medium to "Medium",
-                        FanControlTrait.FanModeEnum.High to "High"
-                    ).forEach { (mode, label) ->
-                        DropdownMenuItem(
-                            text = { Text(label) },
-                            onClick = {
-                                expanded = false
-                                scope.launch {
-                                    try {
-                                        trait.update { setFanMode(mode) }
-                                        // Update slider to designated position when mode selected from dropdown
-                                        sliderPosition = when (mode) {
-                                            FanControlTrait.FanModeEnum.Off -> 0f
-                                            FanControlTrait.FanModeEnum.Low -> 25f
-                                            FanControlTrait.FanModeEnum.Medium -> 50f
-                                            FanControlTrait.FanModeEnum.High -> 75f
-                                            else -> 0f
-                                        }
-                                    } catch (e: Exception) {
-                                        MainActivity.showWarning(scope, "Failed to set fan mode: ${e.message}")
-                                    }
-                                }
-                            }
-                        )
-                    }
-                }
+              }
+              lifecycleOwner.lifecycle.addObserver(observer)
+              onDispose {
+                lifecycleOwner.lifecycle.removeObserver(observer)
+                cameraVm.stopPlayerExternally()
+              }
             }
-        }
-        Spacer(Modifier.height(16.dp))
-        Box(Modifier.fillMaxWidth()) {
-            Text("Fan Speed", fontSize = 16.sp)
-            Text(
-                text = "${sliderPosition.toInt()}%",
-                fontSize = 16.sp,
-                modifier = Modifier.align(Alignment.CenterEnd)
-            )
-        }
 
-        LevelSlider(
-            value = sliderPosition,
-            low = 0f,
-            high = 100f,
-            steps = 0,
-            modifier = Modifier.padding(top = 8.dp),
-            onValueChange = { value ->
-                sliderPosition = value
-                true
-            },
-            onValueChangeFinished = { value ->
-                scope.launch {
-                    try {
-                        val newMode = percentageToFanMode(value)
-                        trait.update { setFanMode(newMode) }
-                    } catch (e: Exception) {
-                        MainActivity.showWarning(scope, "Failed to set fan speed: ${e.message}")
-                    }
-                }
-            },
-            isEnabled = isConnected
-        )
+            LaunchedEffect(cameraVm.uiMessage) {
+              cameraVm.uiMessage.collect { message ->
+                Toast.makeText(context, message, Toast.LENGTH_SHORT).show()
+              }
+            }
+
+            LaunchedEffect(vm.id) {
+              Log.i("DeviceView", "Starting fresh stream session for: ${vm.id}")
+              cameraVm.setDevice(vm.device)
+            }
+
+            val playerState by cameraVm.state.collectAsStateWithLifecycle()
+            val isTalkbackSupported by cameraVm.isTalkbackSupported.collectAsStateWithLifecycle()
+            val isCameraOn by cameraVm.isRecording.collectAsStateWithLifecycle()
+            val isTalkbackEnabled by cameraVm.isTalkbackEnabled.collectAsStateWithLifecycle()
+            val isToggleRecordingInProgress by cameraVm.isToggleRecordingInProgress.collectAsStateWithLifecycle()
+
+            val isAudioRecording by cameraVm.isAudioRecording.collectAsStateWithLifecycle()
+            val isToggleAudioRecordingInProgress by cameraVm.isToggleAudioRecordingInProgress.collectAsStateWithLifecycle()
+
+            val isDoorbell by cameraVm.isDoorbellDevice.collectAsStateWithLifecycle()
+            val isChimeToggleSupported by cameraVm.isChimeToggleSupported.collectAsStateWithLifecycle()
+            val chimeType by cameraVm.externalChimeType.collectAsStateWithLifecycle()
+
+            //Device info
+            val deviceInfo by cameraVm.deviceInfo.collectAsStateWithLifecycle()
+
+            CameraStreamView(
+              playerState = playerState,
+              isTalkbackSupported = isTalkbackSupported,
+
+              // Power Mapping
+              isCameraOn = isCameraOn,
+              isToggleRecordingInProgress = isToggleRecordingInProgress,
+              onTurnCameraOn = { cameraVm.setRecording(it) },
+
+              // Mic (Talkback) Mapping
+              isTalkbackEnabled = isTalkbackEnabled,
+              onSetTalkback = { cameraVm.setTalkback(it) },
+
+              // Cloud Audio Mapping (Using the renamed hardware-synced variables)
+              isAudioRecording = isAudioRecording,
+              isToggleAudioRecordingInProgress = isToggleAudioRecordingInProgress,
+
+              // Device info
+              deviceInfo = deviceInfo,
+
+              // Doorbell
+              isDoorbell = isDoorbell,
+              isChimeToggleSupported = isChimeToggleSupported,
+              onToggleChime = { cameraVm.toggleIndoorChime() },
+              chimeType = chimeType,
+              onSetChimeType = { selectedType -> cameraVm.setExternalChimeType(selectedType) },
+
+              paddingValues = PaddingValues(0.dp),
+              onRetry = { cameraVm.restartInitialization() },
+              onSetAudioRecording = {cameraVm.setAudioRecording(it) },
+              onSurfaceCreated = { cameraVm.onSurfaceCreated(it) },
+              onSurfaceDestroyed = { cameraVm.onSurfaceDestroyed() },
+              onShowSnackbar = { message -> Log.d("CameraStream", message) },
+            )
+          }
+        }
+      } else {
+        Column(modifier = Modifier.fillMaxSize().verticalScroll(rememberScrollState())) {
+          ControlListComponent(homeAppVM)
+        }
+      }
     }
+
+    // Dialogs
+    if (showRenameDialog) {
+      var newName by remember { mutableStateOf(name) }
+      AlertDialog(
+        onDismissRequest = { showRenameDialog = false },
+        title = { Text("Rename Device") },
+        text = { OutlinedTextField(value = newName, onValueChange = { newName = it }, label = { Text("Name") }) },
+        confirmButton = { TextButton(onClick = { vm.rename(newName); showRenameDialog = false }) { Text("Save") } },
+        dismissButton = { TextButton(onClick = { showRenameDialog = false }) { Text("Cancel") } }
+      )
+    }
+
+    if (showDeleteDialog) {
+      AlertDialog(
+        onDismissRequest = { showDeleteDialog = false },
+        title = { Text("Delete Device") },
+        text = { Text("Are you sure you want to delete $name?") },
+        confirmButton = { TextButton(onClick = { showDeleteDialog = false; vm.deleteDevice() }) { Text("Delete") } },
+        dismissButton = { TextButton(onClick = { showDeleteDialog = false }) { Text("Cancel") } }
+      )
+    }
+  }
 }
+
 @Composable
-fun MediaPlaybackControlComponent(
-    trait: MediaPlayback,
-    isConnected: Boolean
-) {
-    val scope = rememberCoroutineScope()
-    val currentState = trait.currentState
+fun ControlListComponent(homeAppVM: HomeAppViewModel) {
 
-    Column {
-        Spacer(Modifier.height(8.dp))
+  val deviceVM: DeviceViewModel = homeAppVM.selectedDeviceVM.collectAsState().value ?: return
+  val deviceType: DeviceType = deviceVM.type.collectAsState().value
+  val deviceTypeName: String = deviceVM.typeName.collectAsState().value
+  val deviceTraits: List<Trait> = deviceVM.traits.collectAsState().value
 
-        Box(Modifier.fillMaxWidth()) {
-            Text("Playback", fontSize = 16.sp)
-            Text(
-                text = currentState?.name ?: "Unknown",
-                fontSize = 16.sp,
-                fontWeight = FontWeight.Medium,
-                modifier = Modifier.align(Alignment.CenterEnd)
-            )
-        }
+  Column(
+    Modifier
+      .padding(horizontal = 16.dp, vertical = 8.dp)
+      .fillMaxWidth()
+  ) {
+    Text(deviceTypeName, fontSize = 16.sp, fontWeight = FontWeight.SemiBold)
+  }
 
-        Spacer(Modifier.height(12.dp))
-
-        Row(
-            modifier = Modifier.fillMaxWidth(),
-            horizontalArrangement = Arrangement.SpaceEvenly
-        ) {
-            IconButton(
-                onClick = {
-                    scope.launch {
-                        try {
-                            if (currentState != null && currentState == MediaPlaybackTrait.PlaybackStateEnum.Playing) {
-                                trait.pause()
-                            } else {
-                                trait.play()
-                            }
-                        } catch (e: Exception) {
-                            MainActivity.showWarning(scope, "Playback control failed: ${e.message}")
-                        }
-                    }
-                },
-                enabled = isConnected
-            ) {
-                Icon(
-                    imageVector = if (currentState == MediaPlaybackTrait.PlaybackStateEnum.Playing) {
-                        Icons.Default.Pause
-                    } else {
-                        Icons.Default.PlayArrow
-                    },
-                    contentDescription = if (currentState == MediaPlaybackTrait.PlaybackStateEnum.Playing) {
-                        "Pause"
-                    } else {
-                        "Play"
-                    },
-                    tint = if (isConnected) {
-                        MaterialTheme.colorScheme.primary
-                    } else {
-                        MaterialTheme.colorScheme.onSurface.copy(alpha = 0.38f)
-                    }
-                )
-            }
-
-            IconButton(
-                onClick = {
-                    scope.launch {
-                        try {
-                            trait.stop()
-                        } catch (e: Exception) {
-                            MainActivity.showWarning(scope, "Stop failed: ${e.message}")
-                        }
-                    }
-                },
-                enabled = isConnected
-            ) {
-                Icon(
-                    imageVector = Icons.Default.Stop,
-                    contentDescription = "Stop",
-                    tint = if (isConnected) {
-                        MaterialTheme.colorScheme.primary
-                    } else {
-                        MaterialTheme.colorScheme.onSurface.copy(alpha = 0.38f)
-                    }
-                )
-            }
-
-            IconButton(
-                onClick = {
-                    scope.launch {
-                        try {
-                            trait.next()
-                        } catch (e: Exception) {
-                            MainActivity.showWarning(scope, "Next failed: ${e.message}")
-                        }
-                    }
-                },
-                enabled = isConnected
-            ) {
-                Icon(
-                    imageVector = Icons.Default.SkipNext,
-                    contentDescription = "Next",
-                    tint = if (isConnected) {
-                        MaterialTheme.colorScheme.primary
-                    } else {
-                        MaterialTheme.colorScheme.onSurface.copy(alpha = 0.38f)
-                    }
-                )
-            }
-        }
-    }
+  for (trait in deviceTraits) {
+    ControlListItem(trait, deviceType)
+  }
 }
+
 @Composable
-fun WindowCoveringControlComponent(
-    trait: WindowCovering,
-    isConnected: Boolean
-) {
-    val scope = rememberCoroutineScope()
-    val targetLiftPercent100ths = trait.targetPositionLiftPercent100ths ?: 0u
-    val targetTiltPercent100ths = trait.targetPositionTiltPercent100ths ?: 0u
-    val targetLiftPercentage = remember(targetLiftPercent100ths) {
-        100f - (targetLiftPercent100ths.toInt() / 100).toFloat()
-    }
-    val targetTiltDegrees = remember(targetTiltPercent100ths) {
-        (targetTiltPercent100ths.toInt() / 10000f) * 180f
-    }
-    var displayLiftPercentage by remember { mutableFloatStateOf(targetLiftPercentage) }
-    var displayTiltDegrees by remember { mutableFloatStateOf(targetTiltDegrees) }
+fun ControlListItem(trait: Trait, type: DeviceType) {
+  val scope: CoroutineScope = rememberCoroutineScope()
 
-    LaunchedEffect(targetLiftPercentage) {
-        displayLiftPercentage = targetLiftPercentage
-    }
+  // Make connectivity reactive by keying off the type changes
+  // When deviceType updates (which happens in subscribeToType), this will recompose
+  val isConnected = remember(type) {
+    type.metadata.sourceConnectivity.connectivityState == ConnectivityState.ONLINE ||
+            type.metadata.sourceConnectivity.connectivityState == ConnectivityState.PARTIALLY_ONLINE
+  }
 
-    LaunchedEffect(targetTiltDegrees) {
-        displayTiltDegrees = targetTiltDegrees
-    }
-    val isOpen = remember(displayLiftPercentage) {
-        displayLiftPercentage > 0f
-    }
+  Box(Modifier.padding(horizontal = 24.dp, vertical = 8.dp)) {
+    when (trait) {
+      is OnOff -> {
+        Column(Modifier.fillMaxWidth()) {
+          Text(trait.factory.toString(), fontSize = 20.sp)
+          Text(DeviceViewModel.getTraitStatus(trait, type), fontSize = 16.sp)
+        }
 
-    Column(
-        modifier = Modifier.fillMaxWidth()
-    ) {
-        Spacer(Modifier.height(8.dp))
-
-        // Open/Close Toggle
-        Box(Modifier.fillMaxWidth()) {
-            Text(
-                text = "Position",
-                fontSize = 16.sp
-            )
-
-            Row(
-                modifier = Modifier.align(Alignment.CenterEnd),
-                verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.spacedBy(8.dp)
-            ) {
-                Text(
-                    text = if (isOpen) "Open" else "Closed",
-                    fontSize = 16.sp
-                )
-                Switch(
-                    checked = isOpen,
-                    onCheckedChange = { shouldOpen ->
-                        scope.launch {
-                            try {
-                                if (shouldOpen) {
-                                    // Open to 99%
-                                    val percent100ths = 100.toUShort()
-                                    trait.goToLiftPercentage(percent100ths)
-                                    displayLiftPercentage = 99f
-                                } else {
-                                    // Close to 0%
-                                    trait.downOrClose()
-                                    displayLiftPercentage = 0f
-                                }
-                            } catch (e: Exception) {
-                                MainActivity.showWarning(scope, "Operation failed: ${e.message}")
-                            }
-                        }
-                    },
-                    enabled = isConnected
-                )
+        Switch(
+          checked = (trait.onOff == true), modifier = Modifier.align(Alignment.CenterEnd),
+          onCheckedChange = { state ->
+            scope.launch {
+              try {
+                if (state) trait.on() else trait.off()
+              } catch (e: HomeException) {
+                MainActivity.showWarning(this, "Toggling device on/off failed: ${e.message}")
+              }
             }
-        }
-
-        Spacer(Modifier.height(24.dp))
-
-        // Lift position display and slider
-        Box(Modifier.fillMaxWidth()) {
-            Text(
-                text = "Lift Position",
-                fontSize = 16.sp
-            )
-            Text(
-                text = "${displayLiftPercentage.toInt()}%",
-                fontSize = 16.sp,
-                modifier = Modifier.align(Alignment.CenterEnd)
-            )
-        }
-
-        LevelSlider(
-            value = displayLiftPercentage,
-            low = 0f,
-            high = 100f,
-            steps = 0,
-            modifier = Modifier.padding(top = 8.dp),
-            onValueChange = { value ->
-                displayLiftPercentage = value
-                true
-            },
-            onValueChangeFinished = { value ->
-                scope.launch {
-                    try {
-                        val invertedPercent = 100f - value
-                        val percent100ths = (invertedPercent.toInt() * 100).toUShort()
-                        trait.goToLiftPercentage(percent100ths)
-                    } catch (e: Exception) {
-                        MainActivity.showWarning(scope, "Lift position change failed: ${e.message}")
-                    }
-                }
-            },
-            isEnabled = isConnected
+          },
+          enabled = isConnected
         )
+      }
 
-        Spacer(Modifier.height(24.dp))
+      is LevelControl -> {
+        val level = trait.currentLevel
+        if (level != null) {
+          val isSpeakerDevice = type.factory == SpeakerDevice
 
-        // Tilt position control (if supported)
-        if (trait.targetPositionTiltPercent100ths != null) {
-            Box(Modifier.fillMaxWidth()) {
+          if (isSpeakerDevice) {
+            // For speakers, use 0-100 directly
+            val currentVolumePercent = level.toInt().coerceIn(0, 100)
+
+            Column {
+              Spacer(Modifier.height(8.dp))
+              Text("Volume Control", fontSize = 20.sp, fontWeight = FontWeight.Bold)
+              Spacer(Modifier.height(16.dp))
+
+              Box(Modifier.fillMaxWidth()) {
+                Text("Volume", fontSize = 16.sp)
                 Text(
-                    text = "Tilt Angle",
-                    fontSize = 16.sp
+                  text = "$currentVolumePercent%",
+                  fontSize = 16.sp,
+                  modifier = Modifier.align(Alignment.CenterEnd)
                 )
-                Text(
-                    text = "${displayTiltDegrees.toInt()}°",
-                    fontSize = 16.sp,
-                    modifier = Modifier.align(Alignment.CenterEnd)
-                )
-            }
+              }
 
-            LevelSlider(
-                value = displayTiltDegrees,
+              LevelSlider(
+                value = currentVolumePercent.toFloat(),
                 low = 0f,
-                high = 180f,
+                high = 100f,
                 steps = 0,
                 modifier = Modifier.padding(top = 8.dp),
-                onValueChange = { value ->
-                    displayTiltDegrees = value
-                    true
+                onValueChange = { newValue ->
+                  // Validate that value is in range
+                  newValue in 0f..100f
                 },
-                onValueChangeFinished = { value ->
-                    scope.launch {
-                        try {
-                            val percent100ths = ((value / 180f) * 10000f).toInt().toUShort()
-                            trait.goToTiltPercentage(percent100ths)
-                        } catch (e: Exception) {
-                            MainActivity.showWarning(scope, "Tilt position change failed: ${e.message}")
-                        }
+                onValueChangeFinished = { volumePercent ->
+                  scope.launch {
+                    try {
+                      trait.moveToLevelWithOnOff(
+                        level = volumePercent.toInt().toUByte(),
+                        transitionTime = null,
+                        optionsMask = LevelControlTrait.OptionsBitmap(),
+                        optionsOverride = LevelControlTrait.OptionsBitmap()
+                      )
+                    } catch (e: HomeException) {
+                      MainActivity.showWarning(this, "Volume control failed: ${e.message}")
                     }
+                  }
                 },
                 isEnabled = isConnected
+              )
+            }
+          } else {
+            // For other devices (lights), use 0-254 scale
+            Text(trait.factory.toString(), fontSize = 20.sp)
+            LevelSlider(
+              value = level.toFloat(),
+              low = 0f, high = 254f, steps = 0,
+              modifier = Modifier.padding(top = 16.dp),
+              onValueChangeFinished = { value: Float ->
+                scope.launch {
+                  try {
+                    trait.moveToLevelWithOnOff(
+                      level = value.toInt().toUByte(),
+                      transitionTime = null,
+                      optionsMask = LevelControlTrait.OptionsBitmap(),
+                      optionsOverride = LevelControlTrait.OptionsBitmap()
+                    )
+                  } catch (e: HomeException) {
+                    MainActivity.showWarning(this, "Level control command failed: ${e.message}")
+                  }
+                }
+              },
+              isEnabled = isConnected
             )
+          }
         }
+      }
+
+      is BooleanState -> {
+        Column(Modifier.fillMaxWidth()) {
+          Text(trait.factory.toString(), fontSize = 20.sp)
+          Text(DeviceViewModel.getTraitStatus(trait, type), fontSize = 16.sp)
+        }
+      }
+
+      is OccupancySensing -> {
+        Column(Modifier.fillMaxWidth()) {
+          Text(trait.factory.toString(), fontSize = 20.sp)
+          Text(DeviceViewModel.getTraitStatus(trait, type), fontSize = 16.sp)
+        }
+      }
+
+      is Thermostat -> {
+        ThermostatControl(
+          trait = trait,
+          isConnected = isConnected,
+          scope = scope
+        )
+      }
+
+      is DoorLock -> {
+        val lockState: DoorLockTrait.DlLockState? = trait.lockState
+        val isLocked: Boolean = lockState == DoorLockTrait.DlLockState.Locked
+        val requiresPin: Boolean? = trait.requirePinforRemoteOperation
+
+        var showPinDialog by remember { mutableStateOf(false) }
+        var pinInput by remember { mutableStateOf("") }
+        var isUnlocking by remember { mutableStateOf(false) }
+        var isProcessing by remember { mutableStateOf(false) }
+
+        Column(Modifier.fillMaxWidth()) {
+          Text("Door lock", fontSize = 20.sp)
+          Text(if (isLocked) "Locked" else "Unlocked", fontSize = 16.sp)
+        }
+
+        // PIN dialog
+        if (showPinDialog) {
+          AlertDialog(
+            onDismissRequest = {
+              if (!isProcessing) {
+                showPinDialog = false
+                pinInput = ""
+              }
+            },
+            title = { Text(if (isUnlocking) "Enter PIN to Unlock" else "Enter PIN to Lock") },
+            text = {
+              OutlinedTextField(
+                value = pinInput,
+                onValueChange = {
+                  if (it.all { c -> c.isDigit() } && it.length <= 8)
+                    pinInput = it
+                },
+                label = { Text("PIN (4-8 digits)") },
+                singleLine = true,
+                enabled = !isProcessing
+              )
+            },
+            confirmButton = {
+              TextButton(
+                onClick = {
+                  isProcessing = true
+                  scope.launch {
+                    try {
+                      val pin = pinInput.toByteArray()
+                      if (isUnlocking) {
+                        trait.unlockDoor { pinCode = pin }
+                      } else {
+                        trait.lockDoor { pinCode = pin }
+                      }
+                      showPinDialog = false
+                      pinInput = ""
+                    } catch (e: HomeException) {
+                      MainActivity.showWarning(this, "Wrong PIN or operation failed: ${e.message}")
+                    } finally {
+                      isProcessing = false
+                    }
+                  }
+                },
+                enabled = pinInput.length >= 4 && !isProcessing
+              ) {
+                Text("OK")
+              }
+            },
+            dismissButton = {
+              TextButton(
+                onClick = {
+                  showPinDialog = false
+                  pinInput = ""
+                },
+                enabled = !isProcessing
+              ) {
+                Text("Cancel")
+              }
+            }
+          )
+        }
+
+        Switch(
+          checked = isLocked,
+          modifier = Modifier.align(Alignment.CenterEnd),
+          onCheckedChange = { shouldLock ->
+            if (requiresPin == true) {
+              // Device requires PIN - show dialog immediately
+              isUnlocking = !shouldLock
+              showPinDialog = true
+            } else {
+              // Device doesn't require PIN (or unknown) - attempt operation directly
+              isProcessing = true
+              scope.launch {
+                try {
+                  if (shouldLock) {
+                    trait.lockDoor()
+                  } else {
+                    trait.unlockDoor()
+                  }
+                } catch (e: HomeException) {
+                  // If operation fails due to credential requirement, show PIN dialog
+                  val needsCredential = e.message?.contains("19") == true ||
+                          e.message?.contains("credential", ignoreCase = true) == true ||
+                          e.message?.contains("authentication", ignoreCase = true) == true
+
+                  if (needsCredential) {
+                    isUnlocking = !shouldLock
+                    showPinDialog = true
+                  } else {
+                    MainActivity.showWarning(this, "Operation failed: ${e.message}")
+                  }
+                } finally {
+                  isProcessing = false
+                }
+              }
+            }
+          },
+          enabled = isConnected && !isProcessing
+        )
+      }
+
+      is FanControl -> {
+        FanControlComponent(
+          trait = trait,
+          isConnected = isConnected
+        )
+      }
+
+      is MediaPlayback -> {
+        MediaPlaybackControlComponent(
+          trait = trait,
+          isConnected = isConnected
+        )
+      }
+
+      is WindowCovering -> {
+        WindowCoveringControlComponent(
+          trait = trait,
+          isConnected = isConnected
+        )
+      }
+
+      is TemperatureMeasurement -> {
+        Column(Modifier.fillMaxWidth()) {
+          Text("Temperature", fontSize = 20.sp)
+          val measuredValue = trait.measuredValue
+          val tempText = if (measuredValue != null) {
+            "%.1f°C".format(measuredValue / 100.0)
+          } else {
+            "--"
+          }
+          Text(tempText, fontSize = 16.sp)
+        }
+      }
+
+      else -> return
     }
+  }
 }
+
+@Composable
+fun FanControlComponent(
+  trait: FanControl,
+  isConnected: Boolean,
+) {
+  val scope = rememberCoroutineScope()
+  val fanMode = trait.fanMode ?: FanControlTrait.FanModeEnum.Off
+  var sliderPosition by remember(fanMode) {
+    mutableFloatStateOf(
+      when (fanMode) {
+        FanControlTrait.FanModeEnum.Off -> 0f
+        FanControlTrait.FanModeEnum.Low -> 25f
+        FanControlTrait.FanModeEnum.Medium -> 50f
+        FanControlTrait.FanModeEnum.High -> 75f
+        else -> 0f
+      }
+    )
+  }
+
+  fun percentageToFanMode(percentage: Float): FanControlTrait.FanModeEnum {
+    return when {
+      percentage == 0f -> FanControlTrait.FanModeEnum.Off
+      percentage <= 33f -> FanControlTrait.FanModeEnum.Low
+      percentage <= 66f -> FanControlTrait.FanModeEnum.Medium
+      else -> FanControlTrait.FanModeEnum.High
+    }
+  }
+
+  Column {
+    Spacer(Modifier.height(8.dp))
+    Box(Modifier.fillMaxWidth()) {
+      Text("Fan Mode", fontSize = 16.sp)
+
+      var expanded by remember { mutableStateOf(false) }
+      Box(modifier = Modifier.align(Alignment.CenterEnd)) {
+        TextButton(
+          onClick = { if (isConnected) expanded = true },
+          enabled = isConnected
+        ) {
+          Text(
+            text = when (fanMode) {
+              FanControlTrait.FanModeEnum.Off -> "Off"
+              FanControlTrait.FanModeEnum.Low -> "Low"
+              FanControlTrait.FanModeEnum.Medium -> "Medium"
+              FanControlTrait.FanModeEnum.High -> "High"
+              else -> "Unknown"
+            },
+            color = if (isConnected) {
+              MaterialTheme.colorScheme.primary
+            } else {
+              MaterialTheme.colorScheme.onSurface.copy(alpha = 0.38f)
+            }
+          )
+          Icon(
+            imageVector = if (expanded) Icons.Default.KeyboardArrowUp else Icons.Default.KeyboardArrowDown,
+            contentDescription = null
+          )
+        }
+
+        DropdownMenu(
+          expanded = expanded,
+          onDismissRequest = { expanded = false }
+        ) {
+          listOf(
+            FanControlTrait.FanModeEnum.Off to "Off",
+            FanControlTrait.FanModeEnum.Low to "Low",
+            FanControlTrait.FanModeEnum.Medium to "Medium",
+            FanControlTrait.FanModeEnum.High to "High"
+          ).forEach { (mode, label) ->
+            DropdownMenuItem(
+              text = { Text(label) },
+              onClick = {
+                expanded = false
+                scope.launch {
+                  try {
+                    trait.update { setFanMode(mode) }
+                    // Update slider to designated position when mode selected from dropdown
+                    sliderPosition = when (mode) {
+                      FanControlTrait.FanModeEnum.Off -> 0f
+                      FanControlTrait.FanModeEnum.Low -> 25f
+                      FanControlTrait.FanModeEnum.Medium -> 50f
+                      FanControlTrait.FanModeEnum.High -> 75f
+                      else -> 0f
+                    }
+                  } catch (e: Exception) {
+                    MainActivity.showWarning(scope, "Failed to set fan mode: ${e.message}")
+                  }
+                }
+              }
+            )
+          }
+        }
+      }
+    }
+    Spacer(Modifier.height(16.dp))
+    Box(Modifier.fillMaxWidth()) {
+      Text("Fan Speed", fontSize = 16.sp)
+      Text(
+        text = "${sliderPosition.toInt()}%",
+        fontSize = 16.sp,
+        modifier = Modifier.align(Alignment.CenterEnd)
+      )
+    }
+
+    LevelSlider(
+      value = sliderPosition,
+      low = 0f,
+      high = 100f,
+      steps = 0,
+      modifier = Modifier.padding(top = 8.dp),
+      onValueChange = { value ->
+        sliderPosition = value
+        true
+      },
+      onValueChangeFinished = { value ->
+        scope.launch {
+          try {
+            val newMode = percentageToFanMode(value)
+            trait.update { setFanMode(newMode) }
+          } catch (e: Exception) {
+            MainActivity.showWarning(scope, "Failed to set fan speed: ${e.message}")
+          }
+        }
+      },
+      isEnabled = isConnected
+    )
+  }
+}
+
+/**
+ * Media playback control component for TV and speaker devices.
+ * Note: TV playback state updates depend on cloud sync between the device and Google Home API.
+ * State changes may take a few seconds to reflect in the UI.
+ */
+@Composable
+fun MediaPlaybackControlComponent(
+  trait: MediaPlayback,
+  isConnected: Boolean,
+) {
+  val scope = rememberCoroutineScope()
+  val currentState = trait.currentState
+
+  Column {
+    Spacer(Modifier.height(8.dp))
+
+    Box(Modifier.fillMaxWidth()) {
+      Text("Playback", fontSize = 16.sp)
+      Text(
+        text = currentState?.name ?: "Unknown",
+        fontSize = 16.sp,
+        fontWeight = FontWeight.Medium,
+        modifier = Modifier.align(Alignment.CenterEnd)
+      )
+    }
+
+    Spacer(Modifier.height(12.dp))
+
+    Row(
+      modifier = Modifier.fillMaxWidth(),
+      horizontalArrangement = Arrangement.SpaceEvenly
+    ) {
+      IconButton(
+        onClick = {
+          scope.launch {
+            try {
+              if (currentState != null && currentState == MediaPlaybackTrait.PlaybackStateEnum.Playing) {
+                trait.pause()
+              } else {
+                trait.play()
+              }
+            } catch (e: Exception) {
+              MainActivity.showWarning(scope, "Playback control failed: ${e.message}")
+            }
+          }
+        },
+        enabled = isConnected
+      ) {
+        Icon(
+          imageVector = if (currentState == MediaPlaybackTrait.PlaybackStateEnum.Playing) {
+            Icons.Default.Pause
+          } else {
+            Icons.Default.PlayArrow
+          },
+          contentDescription = if (currentState == MediaPlaybackTrait.PlaybackStateEnum.Playing) {
+            "Pause"
+          } else {
+            "Play"
+          },
+          tint = if (isConnected) {
+            MaterialTheme.colorScheme.primary
+          } else {
+            MaterialTheme.colorScheme.onSurface.copy(alpha = 0.38f)
+          }
+        )
+      }
+
+      IconButton(
+        onClick = {
+          scope.launch {
+            try {
+              trait.stop()
+            } catch (e: Exception) {
+              MainActivity.showWarning(scope, "Stop failed: ${e.message}")
+            }
+          }
+        },
+        enabled = isConnected
+      ) {
+        Icon(
+          imageVector = Icons.Default.Stop,
+          contentDescription = "Stop",
+          tint = if (isConnected) {
+            MaterialTheme.colorScheme.primary
+          } else {
+            MaterialTheme.colorScheme.onSurface.copy(alpha = 0.38f)
+          }
+        )
+      }
+
+      IconButton(
+        onClick = {
+          scope.launch {
+            try {
+              trait.next()
+            } catch (e: Exception) {
+              MainActivity.showWarning(scope, "Next failed: ${e.message}")
+            }
+          }
+        },
+        enabled = isConnected
+      ) {
+        Icon(
+          imageVector = Icons.Default.SkipNext,
+          contentDescription = "Next",
+          tint = if (isConnected) {
+            MaterialTheme.colorScheme.primary
+          } else {
+            MaterialTheme.colorScheme.onSurface.copy(alpha = 0.38f)
+          }
+        )
+      }
+    }
+  }
+}
+
+@Composable
+fun WindowCoveringControlComponent(
+  trait: WindowCovering,
+  isConnected: Boolean,
+) {
+  val scope = rememberCoroutineScope()
+  val targetLiftPercent100ths = trait.targetPositionLiftPercent100ths ?: 0u
+  val targetTiltPercent100ths = trait.targetPositionTiltPercent100ths ?: 0u
+  val targetLiftPercentage = remember(targetLiftPercent100ths) {
+    100f - (targetLiftPercent100ths.toInt() / 100).toFloat()
+  }
+  val targetTiltDegrees = remember(targetTiltPercent100ths) {
+    (targetTiltPercent100ths.toInt() / 10000f) * 180f
+  }
+  var displayLiftPercentage by remember { mutableFloatStateOf(targetLiftPercentage) }
+  var displayTiltDegrees by remember { mutableFloatStateOf(targetTiltDegrees) }
+
+  LaunchedEffect(targetLiftPercentage) {
+    displayLiftPercentage = targetLiftPercentage
+  }
+
+  LaunchedEffect(targetTiltDegrees) {
+    displayTiltDegrees = targetTiltDegrees
+  }
+  val isOpen = remember(displayLiftPercentage) {
+    displayLiftPercentage > 0f
+  }
+
+  Column(
+    modifier = Modifier.fillMaxWidth()
+  ) {
+    Spacer(Modifier.height(8.dp))
+
+    // Open/Close Toggle
+    Box(Modifier.fillMaxWidth()) {
+      Text(
+        text = "Position",
+        fontSize = 16.sp
+      )
+
+      Row(
+        modifier = Modifier.align(Alignment.CenterEnd),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(8.dp)
+      ) {
+        Text(
+          text = if (isOpen) "Open" else "Closed",
+          fontSize = 16.sp
+        )
+        Switch(
+          checked = isOpen,
+          onCheckedChange = { shouldOpen ->
+            scope.launch {
+              try {
+                if (shouldOpen) {
+                  // Open to 99%
+                  val percent100ths = 100.toUShort()
+                  trait.goToLiftPercentage(percent100ths)
+                  displayLiftPercentage = 99f
+                } else {
+                  // Close to 0%
+                  trait.downOrClose()
+                  displayLiftPercentage = 0f
+                }
+              } catch (e: Exception) {
+                MainActivity.showWarning(scope, "Operation failed: ${e.message}")
+              }
+            }
+          },
+          enabled = isConnected
+        )
+      }
+    }
+
+    Spacer(Modifier.height(24.dp))
+
+    // Lift position display and slider
+    Box(Modifier.fillMaxWidth()) {
+      Text(
+        text = "Lift Position",
+        fontSize = 16.sp
+      )
+      Text(
+        text = "${displayLiftPercentage.toInt()}%",
+        fontSize = 16.sp,
+        modifier = Modifier.align(Alignment.CenterEnd)
+      )
+    }
+
+    LevelSlider(
+      value = displayLiftPercentage,
+      low = 0f,
+      high = 100f,
+      steps = 0,
+      modifier = Modifier.padding(top = 8.dp),
+      onValueChange = { value ->
+        displayLiftPercentage = value
+        true
+      },
+      onValueChangeFinished = { value ->
+        scope.launch {
+          try {
+            val invertedPercent = 100f - value
+            val percent100ths = (invertedPercent.toInt() * 100).toUShort()
+            trait.goToLiftPercentage(percent100ths)
+          } catch (e: Exception) {
+            MainActivity.showWarning(scope, "Lift position change failed: ${e.message}")
+          }
+        }
+      },
+      isEnabled = isConnected
+    )
+
+    Spacer(Modifier.height(24.dp))
+
+    // Tilt position control (if supported)
+    if (trait.targetPositionTiltPercent100ths != null) {
+      Box(Modifier.fillMaxWidth()) {
+        Text(
+          text = "Tilt Angle",
+          fontSize = 16.sp
+        )
+        Text(
+          text = "${displayTiltDegrees.toInt()}°",
+          fontSize = 16.sp,
+          modifier = Modifier.align(Alignment.CenterEnd)
+        )
+      }
+
+      LevelSlider(
+        value = displayTiltDegrees,
+        low = 0f,
+        high = 180f,
+        steps = 0,
+        modifier = Modifier.padding(top = 8.dp),
+        onValueChange = { value ->
+          displayTiltDegrees = value
+          true
+        },
+        onValueChangeFinished = { value ->
+          scope.launch {
+            try {
+              val percent100ths = ((value / 180f) * 10000f).toInt().toUShort()
+              trait.goToTiltPercentage(percent100ths)
+            } catch (e: Exception) {
+              MainActivity.showWarning(scope, "Tilt position change failed: ${e.message}")
+            }
+          }
+        },
+        isEnabled = isConnected
+      )
+    }
+  }
+}
+
 /**
  * Thermostat control for the Thermostat trait, with heat, cool, auto support, both
  * relative and absolute.
@@ -977,238 +1022,243 @@ fun WindowCoveringControlComponent(
  */
 @Composable
 fun ThermostatControl(
-    trait: Thermostat,
-    isConnected: Boolean,
-    scope: CoroutineScope
+  trait: Thermostat,
+  isConnected: Boolean,
+  scope: CoroutineScope,
 ) {
-    val allModes: List<ThermostatTrait.SystemModeEnum> =
-        ThermostatTrait.SystemModeEnum.entries.filter { mode -> mode != ThermostatTrait.SystemModeEnum.UnknownValue }
-    var expanded: Boolean by remember { mutableStateOf(false) }
-    Column (Modifier.fillMaxWidth()) {
-        // Ambient Temperature
-        Box (Modifier.fillMaxWidth()) {
-            Text("Ambient", fontSize = 20.sp)
-            val temperatureString = trait.localTemperature?.div(100)?.toFloat().toString() + "℃"
-            Text(temperatureString, fontSize = 16.sp, modifier = Modifier.align(Alignment.CenterEnd))
-        }
-        Spacer (Modifier.height(16.dp))
-
-        // System Mode
-        Box (Modifier.fillMaxWidth()) {
-            Text("SystemMode", fontSize = 20.sp, modifier = Modifier.align(Alignment.CenterStart))
-            Box(modifier = Modifier.align(Alignment.CenterEnd)) {
-                TextButton(onClick = { expanded = true }, modifier = Modifier.align(Alignment.CenterEnd)) {
-                    Text(text = trait.systemMode.toString() + " ▾", fontSize = 20.sp)
-                }
-                DropdownMenu(expanded = expanded, onDismissRequest = { expanded = false }, modifier = Modifier.align(Alignment.CenterEnd)) {
-                    for (mode in allModes) {
-                        DropdownMenuItem(
-                            text = { Text(mode.toString()) },
-                            onClick = {
-                                scope.launch {
-                                    try {
-                                        trait.update { setSystemMode(mode) }
-                                    } catch (e: HomeException) {
-                                        MainActivity.showWarning(this, "Exception: " + e.message)
-                                    }
-                                }
-                                expanded = false
-                            },
-                            enabled = trait.isModeSupported(mode)
-                        )
-                    }
-                }
-            }
-        }
-        val isCoolingSetpointEnabled = isConnected &&
-                (trait.systemMode?.isModeCoolingRelated() == true)
-        if (isCoolingSetpointEnabled) {
-            val lowCoolSetpoint = trait.getMinCoolSetpointLimit()
-            val highCoolSetpoint = trait.getMaxCoolSetpointLimit()
-            val coolSetpoint = trait.getCoolingSetpoint()
-
-            // Cooling Setpoint slider
-            Spacer(Modifier.height(16.dp))
-            LabeledSlider(
-                title = "Cooling Setpoint",
-                isEnabled = isCoolingSetpointEnabled,
-                currentValue = coolSetpoint,
-                low = lowCoolSetpoint,
-                high = highCoolSetpoint,
-                roundingValue = 50f,
-                unitSuffix = "℃",
-                onValueChange = { newCoolSetPointCentiDegrees ->
-                    trait.isValidCoolingSetpointUpdate(
-                        newCoolSetPointCentiDegrees.toInt().toShort()
-                    )
-                },
-                onValueChangeFinished = { newValueCentiDegrees ->
-                    if (newValueCentiDegrees.toInt().toShort() != coolSetpoint)
-                        trait.setOccupiedCoolingPoint(newValueCentiDegrees.toInt())
-                }
-            )
-
-            // Cool Adjustment Buttons
-            Spacer(Modifier.height(8.dp))
-
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.SpaceBetween,
-                verticalAlignment = Alignment.CenterVertically
-            ) {
-                Button(onClick = {
-                    scope.launch {
-                        try {
-                            trait.setpointRaiseLower(
-                                mode = ThermostatTrait.SetpointRaiseLowerModeEnum.Cool,
-                                amount = -5
-                            )
-                            println("Decreased Cool by 0.5℃")
-                        } catch (e: Exception) {
-                            println("Error changing setpoint: ${e.message}")
-                        }
-                    }
-                }) {
-                    Text("-0.5℃ Cool")
-                }
-
-                Button(onClick = {
-                    scope.launch {
-                        try {
-                            trait.setpointRaiseLower(
-                                mode = ThermostatTrait.SetpointRaiseLowerModeEnum.Cool,
-                                amount = 5
-                            )
-                            println("Increased Cool by 0.5℃")
-                        } catch (e: Exception) {
-                            println("Error changing setpoint: ${e.message}")
-                        }
-                    }
-                }) {
-                    Text("+0.5℃ Cool")
-                }
-            }
-
-            Spacer(Modifier.height(8.dp))
-        }
-
-        val isHeatingSetpointEnabled = isConnected &&
-                (trait.systemMode?.isModeHeatingRelated() == true)
-        if (isHeatingSetpointEnabled) {
-            val lowHeatSetpoint = trait.getMinHeatSetpointLimit()
-            val highHeatSetpoint = trait.getMaxHeatSetpointLimit()
-            val heatSetpoint = trait.getHeatingSetpoint()
-
-            // Heating Setpoint slider
-            Spacer(Modifier.height(16.dp))
-            LabeledSlider(
-                title = "Heating Setpoint",
-                isEnabled = isHeatingSetpointEnabled,
-                currentValue = heatSetpoint,
-                low = lowHeatSetpoint,
-                high = highHeatSetpoint,
-                roundingValue = 50f,
-                unitSuffix = "℃",
-                onValueChange = { newHeatSetPointCentiDegrees ->
-                    trait.isValidHeatingSetpointUpdate(
-                        newHeatSetPointCentiDegrees.toInt().toShort()
-                    )
-                },
-                onValueChangeFinished = { newValueCentiDegrees -> // The lambda receives the new absolute value
-                    if (newValueCentiDegrees.toInt().toShort() != heatSetpoint)
-                        trait.setOccupiedHeatingPoint(newValueCentiDegrees.toInt())
-                }
-            )
-
-            // Heat Adjustment Buttons
-            Spacer(Modifier.height(8.dp))
-
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.SpaceBetween,
-                verticalAlignment = Alignment.CenterVertically
-            ) {
-                Button(onClick = {
-                    scope.launch {
-                        try {
-                            trait.setpointRaiseLower(
-                                mode = ThermostatTrait.SetpointRaiseLowerModeEnum.Heat,
-                                amount = -5
-                            )
-                            println("Decreased Heat by 0.5℃")
-                        } catch (e: Exception) {
-                            println("Error changing setpoint: ${e.message}")
-                        }
-                    }
-                }) {
-                    Text("-0.5℃ Heat")
-                }
-                Button(onClick = {
-                    println("Increase Heat by 0.5℃")
-                    scope.launch {
-                        try {
-                            trait.setpointRaiseLower(
-                                mode = ThermostatTrait.SetpointRaiseLowerModeEnum.Heat,
-                                amount = 5
-                            )
-                            println("Increased Heat by 0.5℃")
-                        } catch (e: Exception) {
-                            println("Error changing setpoint: ${e.message}")
-                        }
-                    }
-                }) {
-                    Text("+0.5℃ Heat")
-                }
-            }
-
-            Spacer(Modifier.height(8.dp))
-
-        }
-
-        // Both Adjustment Buttons
-        if (trait.getSystemMode() == ThermostatTrait.SystemModeEnum.Auto) {
-            HorizontalDivider(thickness = 2.dp)
-
-            Text ("Auto mode only:")
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.SpaceBetween,
-                verticalAlignment = Alignment.CenterVertically
-            ) {
-                Button(onClick = {
-                    scope.launch {
-                        try {
-                            trait.setpointRaiseLower(
-                                mode = ThermostatTrait.SetpointRaiseLowerModeEnum.Both,
-                                amount = -5
-                            )
-                            println("Decreased Both by 0.5℃")
-                        } catch (e: Exception) {
-                            println("Error changing setpoint: ${e.message}")
-                        }
-                    }
-                }) {
-                    Text("-0.5℃ Both")
-                }
-                Button(onClick = {
-                    scope.launch {
-                        try {
-                            trait.setpointRaiseLower(
-                                mode = ThermostatTrait.SetpointRaiseLowerModeEnum.Both,
-                                amount = 5
-                            )
-                            println("Increased Both by 0.5℃")
-                        } catch (e: Exception) {
-                            println("Error changing setpoint: ${e.message}")
-                        }
-                    }
-                }) {
-                    Text("+0.5℃ Both")
-                }
-            }
-        }
+  val allModes: List<ThermostatTrait.SystemModeEnum> =
+    ThermostatTrait.SystemModeEnum.entries.filter { mode -> mode != ThermostatTrait.SystemModeEnum.UnknownValue }
+  var expanded: Boolean by remember { mutableStateOf(false) }
+  Column(Modifier.fillMaxWidth()) {
+    // Ambient Temperature
+    Box(Modifier.fillMaxWidth()) {
+      Text("Ambient", fontSize = 20.sp)
+      val temperatureString = trait.localTemperature?.div(100)?.toFloat().toString() + "℃"
+      Text(temperatureString, fontSize = 16.sp, modifier = Modifier.align(Alignment.CenterEnd))
     }
+    Spacer(Modifier.height(16.dp))
+
+    // System Mode
+    Box(Modifier.fillMaxWidth()) {
+      Text("SystemMode", fontSize = 20.sp, modifier = Modifier.align(Alignment.CenterStart))
+      Box(modifier = Modifier.align(Alignment.CenterEnd)) {
+        TextButton(onClick = { expanded = true }, modifier = Modifier.align(Alignment.CenterEnd)) {
+          Text(text = trait.systemMode.toString() + " ▾", fontSize = 20.sp)
+        }
+        DropdownMenu(
+          expanded = expanded,
+          onDismissRequest = { expanded = false },
+          modifier = Modifier.align(Alignment.CenterEnd)
+        ) {
+          for (mode in allModes) {
+            DropdownMenuItem(
+              text = { Text(mode.toString()) },
+              onClick = {
+                scope.launch {
+                  try {
+                    trait.update { setSystemMode(mode) }
+                  } catch (e: HomeException) {
+                    MainActivity.showWarning(this, "Exception: " + e.message)
+                  }
+                }
+                expanded = false
+              },
+              enabled = trait.isModeSupported(mode)
+            )
+          }
+        }
+      }
+    }
+    val isCoolingSetpointEnabled = isConnected &&
+            (trait.systemMode?.isModeCoolingRelated() == true)
+    if (isCoolingSetpointEnabled) {
+      val lowCoolSetpoint = trait.getMinCoolSetpointLimit()
+      val highCoolSetpoint = trait.getMaxCoolSetpointLimit()
+      val coolSetpoint = trait.getCoolingSetpoint()
+
+      // Cooling Setpoint slider
+      Spacer(Modifier.height(16.dp))
+      LabeledSlider(
+        title = "Cooling Setpoint",
+        isEnabled = isCoolingSetpointEnabled,
+        currentValue = coolSetpoint,
+        low = lowCoolSetpoint,
+        high = highCoolSetpoint,
+        roundingValue = 50f,
+        unitSuffix = "℃",
+        onValueChange = { newCoolSetPointCentiDegrees ->
+          trait.isValidCoolingSetpointUpdate(
+            newCoolSetPointCentiDegrees.toInt().toShort()
+          )
+        },
+        onValueChangeFinished = { newValueCentiDegrees ->
+          if (newValueCentiDegrees.toInt().toShort() != coolSetpoint)
+            trait.setOccupiedCoolingPoint(newValueCentiDegrees.toInt())
+        }
+      )
+
+      // Cool Adjustment Buttons
+      Spacer(Modifier.height(8.dp))
+
+      Row(
+        modifier = Modifier.fillMaxWidth(),
+        horizontalArrangement = Arrangement.SpaceBetween,
+        verticalAlignment = Alignment.CenterVertically
+      ) {
+        Button(onClick = {
+          scope.launch {
+            try {
+              trait.setpointRaiseLower(
+                mode = ThermostatTrait.SetpointRaiseLowerModeEnum.Cool,
+                amount = -5
+              )
+              println("Decreased Cool by 0.5℃")
+            } catch (e: Exception) {
+              println("Error changing setpoint: ${e.message}")
+            }
+          }
+        }) {
+          Text("-0.5℃ Cool")
+        }
+
+        Button(onClick = {
+          scope.launch {
+            try {
+              trait.setpointRaiseLower(
+                mode = ThermostatTrait.SetpointRaiseLowerModeEnum.Cool,
+                amount = 5
+              )
+              println("Increased Cool by 0.5℃")
+            } catch (e: Exception) {
+              println("Error changing setpoint: ${e.message}")
+            }
+          }
+        }) {
+          Text("+0.5℃ Cool")
+        }
+      }
+
+      Spacer(Modifier.height(8.dp))
+    }
+
+    val isHeatingSetpointEnabled = isConnected &&
+            (trait.systemMode?.isModeHeatingRelated() == true)
+    if (isHeatingSetpointEnabled) {
+      val lowHeatSetpoint = trait.getMinHeatSetpointLimit()
+      val highHeatSetpoint = trait.getMaxHeatSetpointLimit()
+      val heatSetpoint = trait.getHeatingSetpoint()
+
+      // Heating Setpoint slider
+      Spacer(Modifier.height(16.dp))
+      LabeledSlider(
+        title = "Heating Setpoint",
+        isEnabled = isHeatingSetpointEnabled,
+        currentValue = heatSetpoint,
+        low = lowHeatSetpoint,
+        high = highHeatSetpoint,
+        roundingValue = 50f,
+        unitSuffix = "℃",
+        onValueChange = { newHeatSetPointCentiDegrees ->
+          trait.isValidHeatingSetpointUpdate(
+            newHeatSetPointCentiDegrees.toInt().toShort()
+          )
+        },
+        onValueChangeFinished = { newValueCentiDegrees -> // The lambda receives the new absolute value
+          if (newValueCentiDegrees.toInt().toShort() != heatSetpoint)
+            trait.setOccupiedHeatingPoint(newValueCentiDegrees.toInt())
+        }
+      )
+
+      // Heat Adjustment Buttons
+      Spacer(Modifier.height(8.dp))
+
+      Row(
+        modifier = Modifier.fillMaxWidth(),
+        horizontalArrangement = Arrangement.SpaceBetween,
+        verticalAlignment = Alignment.CenterVertically
+      ) {
+        Button(onClick = {
+          scope.launch {
+            try {
+              trait.setpointRaiseLower(
+                mode = ThermostatTrait.SetpointRaiseLowerModeEnum.Heat,
+                amount = -5
+              )
+              println("Decreased Heat by 0.5℃")
+            } catch (e: Exception) {
+              println("Error changing setpoint: ${e.message}")
+            }
+          }
+        }) {
+          Text("-0.5℃ Heat")
+        }
+        Button(onClick = {
+          println("Increase Heat by 0.5℃")
+          scope.launch {
+            try {
+              trait.setpointRaiseLower(
+                mode = ThermostatTrait.SetpointRaiseLowerModeEnum.Heat,
+                amount = 5
+              )
+              println("Increased Heat by 0.5℃")
+            } catch (e: Exception) {
+              println("Error changing setpoint: ${e.message}")
+            }
+          }
+        }) {
+          Text("+0.5℃ Heat")
+        }
+      }
+
+      Spacer(Modifier.height(8.dp))
+
+    }
+
+    // Both Adjustment Buttons
+    if (trait.getSystemMode() == ThermostatTrait.SystemModeEnum.Auto) {
+      HorizontalDivider(thickness = 2.dp)
+
+      Text("Auto mode only:")
+      Row(
+        modifier = Modifier.fillMaxWidth(),
+        horizontalArrangement = Arrangement.SpaceBetween,
+        verticalAlignment = Alignment.CenterVertically
+      ) {
+        Button(onClick = {
+          scope.launch {
+            try {
+              trait.setpointRaiseLower(
+                mode = ThermostatTrait.SetpointRaiseLowerModeEnum.Both,
+                amount = -5
+              )
+              println("Decreased Both by 0.5℃")
+            } catch (e: Exception) {
+              println("Error changing setpoint: ${e.message}")
+            }
+          }
+        }) {
+          Text("-0.5℃ Both")
+        }
+        Button(onClick = {
+          scope.launch {
+            try {
+              trait.setpointRaiseLower(
+                mode = ThermostatTrait.SetpointRaiseLowerModeEnum.Both,
+                amount = 5
+              )
+              println("Increased Both by 0.5℃")
+            } catch (e: Exception) {
+              println("Error changing setpoint: ${e.message}")
+            }
+          }
+        }) {
+          Text("+0.5℃ Both")
+        }
+      }
+    }
+  }
 }
+
 /**
  * A custom slider composable with support for value rounding and validation.
  *
@@ -1227,39 +1277,39 @@ fun ThermostatControl(
  */
 @Composable
 fun LevelSlider(
-    value: Float,
-    low: Float,
-    high: Float,
-    steps: Int,
-    modifier: Modifier = Modifier,
-    roundingValue: Float? = null,
-    onValueChange: ((Float) -> Boolean)? = null,
-    onValueChangeFinished: (Float) -> Unit,
-    isEnabled: Boolean = true,
+  value: Float,
+  low: Float,
+  high: Float,
+  steps: Int,
+  modifier: Modifier = Modifier,
+  roundingValue: Float? = null,
+  onValueChange: ((Float) -> Boolean)? = null,
+  onValueChangeFinished: (Float) -> Unit,
+  isEnabled: Boolean = true,
 ) {
-    // This state now correctly resets if the external `value` changes.
-    var level: Float by remember(value) { mutableFloatStateOf(value) }
+  // This state now correctly resets if the external `value` changes.
+  var level: Float by remember(value) { mutableFloatStateOf(value) }
 
-    Slider(
-        value = level,
-        valueRange = low..high,
-        steps = steps,
-        modifier = modifier,
-        onValueChange = { newRawValue ->
-            // Apply rounding if roundingValue is provided
-            val newValue = if (roundingValue != null) {
-                (newRawValue / roundingValue).roundToInt() * roundingValue
-            } else {
-                newRawValue
-            }
-            // Update state only if validation passes or there's no validator
-            if (onValueChange == null || onValueChange(newValue)) {
-                level = newValue
-            }
-        },
-        onValueChangeFinished = { onValueChangeFinished(level) },
-        enabled = isEnabled
-    )
+  Slider(
+    value = level,
+    valueRange = low..high,
+    steps = steps,
+    modifier = modifier,
+    onValueChange = { newRawValue ->
+      // Apply rounding if roundingValue is provided
+      val newValue = if (roundingValue != null) {
+        (newRawValue / roundingValue).roundToInt() * roundingValue
+      } else {
+        newRawValue
+      }
+      // Update state only if validation passes or there's no validator
+      if (onValueChange == null || onValueChange(newValue)) {
+        level = newValue
+      }
+    },
+    onValueChangeFinished = { onValueChangeFinished(level) },
+    enabled = isEnabled
+  )
 }
 
 /**
@@ -1285,58 +1335,58 @@ fun LevelSlider(
  */
 @Composable
 private fun LabeledSlider(
-    title: String,
-    isEnabled: Boolean,
-    currentValue: Short?,
-    low: Short?,
-    high: Short?,
-    roundingValue: Float? = null,
-    unitSuffix: String = "",
-    onValueChange: ((Float) -> Boolean)? = null,
-    onValueChangeFinished: suspend (newValue: Float) -> Unit,
+  title: String,
+  isEnabled: Boolean,
+  currentValue: Short?,
+  low: Short?,
+  high: Short?,
+  roundingValue: Float? = null,
+  unitSuffix: String = "",
+  onValueChange: ((Float) -> Boolean)? = null,
+  onValueChangeFinished: suspend (newValue: Float) -> Unit,
 ) {
-    // Return early if the necessary values are null
-    if (currentValue == null || low == null || high == null) {
-        Text("$title: Not available")
-        return
-    }
+  // Return early if the necessary values are null
+  if (currentValue == null || low == null || high == null) {
+    Text("$title: Not available")
+    return
+  }
 
-    val scope = rememberCoroutineScope()
-    val vset = currentValue.toFloat()
-    val vlow = low.toFloat()
-    val vhigh = high.toFloat()
+  val scope = rememberCoroutineScope()
+  val vset = currentValue.toFloat()
+  val vlow = low.toFloat()
+  val vhigh = high.toFloat()
 
-    Box(Modifier.fillMaxWidth()) {
-        Text(title, fontSize = 20.sp)
-        Text(
-            text = (vset / 100f).toString() + unitSuffix,
-            fontSize = 16.sp,
-            modifier = Modifier.align(Alignment.TopEnd)
-        )
+  Box(Modifier.fillMaxWidth()) {
+    Text(title, fontSize = 20.sp)
+    Text(
+      text = (vset / 100f).toString() + unitSuffix,
+      fontSize = 16.sp,
+      modifier = Modifier.align(Alignment.TopEnd)
+    )
 
-        LevelSlider(
-            value = vset,
-            low = vlow,
-            high = vhigh,
-            // Calculate steps safely, ensuring it's not negative
-            steps = ((vhigh - vlow) / 10f).toInt().minus(1).coerceAtLeast(0),
-            roundingValue = roundingValue,
-            modifier = Modifier.padding(top = 16.dp),
-            onValueChange = { value ->
-                if (onValueChange == null) true
-                else onValueChange(value)
-            },
-            onValueChangeFinished = { value: Float ->
-                scope.launch {
-                    try {
-                        // Call the lambda with the new slider value directly
-                        onValueChangeFinished(value)
-                    } catch (e: HomeException) {
-                        MainActivity.showWarning(this, "Exception: " + e.message)
-                    }
-                }
-            },
-            isEnabled = isEnabled
-        )
-    }
+    LevelSlider(
+      value = vset,
+      low = vlow,
+      high = vhigh,
+      // Calculate steps safely, ensuring it's not negative
+      steps = ((vhigh - vlow) / 10f).toInt().minus(1).coerceAtLeast(0),
+      roundingValue = roundingValue,
+      modifier = Modifier.padding(top = 16.dp),
+      onValueChange = { value ->
+        if (onValueChange == null) true
+        else onValueChange(value)
+      },
+      onValueChangeFinished = { value: Float ->
+        scope.launch {
+          try {
+            // Call the lambda with the new slider value directly
+            onValueChangeFinished(value)
+          } catch (e: HomeException) {
+            MainActivity.showWarning(this, "Exception: " + e.message)
+          }
+        }
+      },
+      isEnabled = isEnabled
+    )
+  }
 }

@@ -1,4 +1,3 @@
-
 /* Copyright 2025 Google LLC
 
 Licensed under the Apache License, Version 2.0 (the "License");
@@ -46,48 +45,56 @@ import com.example.googlehomeapisampleapp.viewmodel.HomeAppViewModel
 import kotlinx.coroutines.launch
 
 @Composable
-fun TabbedMenuView (homeAppVM: HomeAppViewModel) {
-    Column(Modifier.imePadding().background(Color.hsv(0f, 0f, 0.90f))) {
-        // Navigation bar for the tabbed menu:
-        Row (modifier = Modifier.fillMaxWidth()) {
-            Column(content = { DevicesButtonContent(homeAppVM) },
-                modifier = Modifier.fillMaxWidth().weight(1f).padding(16.dp).clickable{
-                    homeAppVM.viewModelScope.launch{
-                        homeAppVM.selectedTab.emit(HomeAppViewModel.NavigationTab.DEVICES)
-                    }})
-            Column(content = { AutomationsButtonContent(homeAppVM) },
-                modifier = Modifier.fillMaxWidth().weight(1f).padding(16.dp).clickable{
-                    homeAppVM.viewModelScope.launch{
-                        homeAppVM.selectedTab.emit(HomeAppViewModel.NavigationTab.AUTOMATIONS)
-                    }})
-        }
-        // Spacer to offset the system gesture bars for edge-to-edge applications:
-        Spacer(Modifier.windowInsetsBottomHeight(WindowInsets.systemBars))
+fun TabbedMenuView(homeAppVM: HomeAppViewModel) {
+  Column(Modifier.imePadding().background(Color.hsv(0f, 0f, 0.90f))) {
+    // Navigation bar for the tabbed menu:
+    Row(modifier = Modifier.fillMaxWidth()) {
+      Column(
+        content = { DevicesButtonContent(homeAppVM) },
+        modifier = Modifier.fillMaxWidth().weight(1f).padding(16.dp).clickable {
+          homeAppVM.viewModelScope.launch {
+            homeAppVM.selectedTab.emit(HomeAppViewModel.NavigationTab.DEVICES)
+          }
+        })
+      Column(
+        content = { AutomationsButtonContent(homeAppVM) },
+        modifier = Modifier.fillMaxWidth().weight(1f).padding(16.dp).clickable {
+          homeAppVM.viewModelScope.launch {
+            homeAppVM.selectedTab.emit(HomeAppViewModel.NavigationTab.AUTOMATIONS)
+          }
+        })
     }
+    // Spacer to offset the system gesture bars for edge-to-edge applications:
+    Spacer(Modifier.windowInsetsBottomHeight(WindowInsets.systemBars))
+  }
 }
 
 @Composable
-fun DevicesButtonContent (homeAppVM: HomeAppViewModel) {
-    val selectedTab: HomeAppViewModel.NavigationTab = homeAppVM.selectedTab.collectAsState().value
-    val isSelected: Boolean = (selectedTab == HomeAppViewModel.NavigationTab.DEVICES)
-    val buttonColor: Color = if (isSelected) MaterialTheme.colorScheme.primary else Color.DarkGray
+fun DevicesButtonContent(homeAppVM: HomeAppViewModel) {
+  val selectedTab: HomeAppViewModel.NavigationTab = homeAppVM.selectedTab.collectAsState().value
+  val isSelected: Boolean = (selectedTab == HomeAppViewModel.NavigationTab.DEVICES)
+  val buttonColor: Color = if (isSelected) MaterialTheme.colorScheme.primary else Color.DarkGray
 
-    Column(horizontalAlignment = Alignment.CenterHorizontally, modifier = Modifier.fillMaxWidth()) {
-        Icon(imageVector = ImageVector.vectorResource(R.drawable.icon_hub), "",
-            Modifier.size(36.dp).background(Color.Transparent), tint = buttonColor)
-        Text(stringResource(R.string.tab_button_devices), color = buttonColor)
-    }
+  Column(horizontalAlignment = Alignment.CenterHorizontally, modifier = Modifier.fillMaxWidth()) {
+    Icon(
+      imageVector = ImageVector.vectorResource(R.drawable.icon_hub), "",
+      Modifier.size(36.dp).background(Color.Transparent), tint = buttonColor
+    )
+    Text(stringResource(R.string.tab_button_devices), color = buttonColor)
+  }
 }
 
 @Composable
-fun AutomationsButtonContent (homeAppVM: HomeAppViewModel) {
-    val selectedTab: HomeAppViewModel.NavigationTab = homeAppVM.selectedTab.collectAsState().value
-    val isSelected: Boolean = (selectedTab == HomeAppViewModel.NavigationTab.AUTOMATIONS)
-    val buttonColor: Color = if (isSelected) MaterialTheme.colorScheme.primary else Color.DarkGray
+fun AutomationsButtonContent(homeAppVM: HomeAppViewModel) {
+  val selectedTab: HomeAppViewModel.NavigationTab = homeAppVM.selectedTab.collectAsState().value
+  val isSelected: Boolean = (selectedTab == HomeAppViewModel.NavigationTab.AUTOMATIONS)
+  val buttonColor: Color = if (isSelected) MaterialTheme.colorScheme.primary else Color.DarkGray
 
-    Column(horizontalAlignment = Alignment.CenterHorizontally, modifier = Modifier.fillMaxWidth()) {
-        Icon(imageVector = ImageVector.vectorResource(R.drawable.icon_automations), "",
-            Modifier.size(36.dp).background(Color.Transparent), tint = buttonColor)
-        Text(stringResource(R.string.tab_button_automations), color = buttonColor)
-    }
+  Column(horizontalAlignment = Alignment.CenterHorizontally, modifier = Modifier.fillMaxWidth()) {
+    Icon(
+      imageVector = ImageVector.vectorResource(R.drawable.icon_automations), "",
+      Modifier.size(36.dp).background(Color.Transparent), tint = buttonColor
+    )
+    Text(stringResource(R.string.tab_button_automations), color = buttonColor)
+  }
 }

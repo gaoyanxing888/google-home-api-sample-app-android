@@ -1,4 +1,3 @@
-
 /* Copyright 2025 Google LLC
 
 Licensed under the Apache License, Version 2.0 (the "License");
@@ -21,73 +20,72 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.example.googlehomeapisampleapp.viewmodel.devices.DeviceViewModel
 import com.google.home.Room
-import com.google.home.Structure
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
 
-class RoomViewModel (val structure: Structure, val room: Room) : ViewModel() {
+class RoomViewModel(val room: Room) : ViewModel() {
 
-    var id : String = room.id.id
-    private val _name = MutableStateFlow("")
-    val name: StateFlow<String> = _name.asStateFlow()
+  var id: String = room.id.id
+  private val _name = MutableStateFlow("")
+  val name: StateFlow<String> = _name.asStateFlow()
 
-    val deviceVMs : MutableStateFlow<List<DeviceViewModel>>
+  val deviceVMs: MutableStateFlow<List<DeviceViewModel>>
 
-    init {
-        _name.value = room.name
+  init {
+    _name.value = room.name
 
-        // Initialize dynamic values for a structure:
-        deviceVMs = MutableStateFlow(mutableListOf())
+    // Initialize dynamic values for a structure:
+    deviceVMs = MutableStateFlow(mutableListOf())
 
-        // Subscribe to changes on dynamic values:
-        viewModelScope.launch { subscribeToDevices() }
+    // Subscribe to changes on dynamic values:
+    viewModelScope.launch { subscribeToDevices() }
+  }
+
+  private suspend fun subscribeToDevices() {
+    // Subscribe to changes on devices:
+    room.devices().collect { deviceSet ->
+      val deviceVMs = mutableListOf<DeviceViewModel>()
+      // Store devices in container ViewModels:
+      for (device in deviceSet) {
+        deviceVMs.add(DeviceViewModel(device))
+      }
+      // Store the ViewModels:
+      this.deviceVMs.emit(deviceVMs)
+    }
+  }
+
+  /**
+   * Rename the room to the specified name.
+   * newName The new name for the room
+   * IllegalArgumentException if the new name is empty or unchanged
+   * Exception if the rename operation fails
+   */
+  suspend fun renameRoom(newName: String) {
+    val newRoomName = newName.trim()
+    if (newRoomName.isEmpty()) {
+      Log.w(TAG, "Attempted to rename room to empty name")
+      throw IllegalArgumentException("The room name cannot be empty.")
+    }
+    if (newRoomName == name.value) {
+      Log.d(TAG, "Room name unchanged, skipping rename operation")
+      return
     }
 
-    private suspend fun subscribeToDevices() {
-        // Subscribe to changes on devices:
-        room.devices().collect { deviceSet ->
-            val deviceVMs = mutableListOf<DeviceViewModel>()
-            // Store devices in container ViewModels:
-            for (device in deviceSet) {
-                deviceVMs.add(DeviceViewModel(device))
-            }
-            // Store the ViewModels:
-            this.deviceVMs.emit(deviceVMs)
-        }
+    try {
+      Log.d(TAG, "Renaming room from '${name.value}' to '$newRoomName'")
+      room.setName(newRoomName)
+      // The room name should be updated automatically by the Room API
+      // If not, we might need to manually update: _name.value = newRoomName
+      Log.d(TAG, "Successfully renamed room to '$newRoomName'")
+    } catch (e: Exception) {
+      Log.e(TAG, "Failed to rename room from '${name.value}' to '$newRoomName': ${e.message}", e)
+      throw e
     }
+  }
 
-    /**
-     * Rename the room to the specified name.
-     * newName The new name for the room
-     * IllegalArgumentException if the new name is empty or unchanged
-     * Exception if the rename operation fails
-     */
-    suspend fun renameRoom(newName: String) {
-        val newRoomName = newName.trim()
-        if (newRoomName.isEmpty()) {
-            Log.w(TAG, "Attempted to rename room to empty name")
-            throw IllegalArgumentException("The room name cannot be empty.")
-        }
-        if (newRoomName == name.value) {
-            Log.d(TAG, "Room name unchanged, skipping rename operation")
-            return
-        }
-
-        try {
-            Log.d(TAG, "Renaming room from '${name.value}' to '$newRoomName'")
-            room.setName(newRoomName)
-            // The room name should be updated automatically by the Room API
-            // If not, we might need to manually update: _name.value = newRoomName
-            Log.d(TAG, "Successfully renamed room to '$newRoomName'")
-        } catch (e: Exception) {
-            Log.e(TAG, "Failed to rename room from '${name.value}' to '$newRoomName': ${e.message}", e)
-            throw e
-        }
-    }
-
-    companion object {
-        private const val TAG = "RoomViewModel"
-    }
+  companion object {
+    private const val TAG = "RoomViewModel"
+  }
 }

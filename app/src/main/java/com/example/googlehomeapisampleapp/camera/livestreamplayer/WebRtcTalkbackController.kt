@@ -1,3 +1,18 @@
+/* Copyright 2025 Google LLC
+
+Licensed under the Apache License, Version 2.0 (the "License");
+you may not use this file except in compliance with the License.
+You may obtain a copy of the License at
+
+    https://www.apache.org/licenses/LICENSE-2.0
+
+Unless required by applicable law or agreed to in writing, software
+distributed under the License is distributed on an "AS IS" BASIS,
+WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+See the License for the specific language governing permissions and
+limitations under the License.
+*/
+
 package com.example.googlehomeapisampleapp.camera.livestreamplayer
 
 import android.util.Log
@@ -19,71 +34,71 @@ import org.webrtc.audio.JavaAudioDeviceModule
  * @property audioDeviceModule The audio device module to use for talkback.
  */
 class WebRtcTalkbackController(
-    private val peerConnectionFactory: PeerConnectionFactory,
-    private val signalingService: SignalingService,
-    private val audioDeviceModule: JavaAudioDeviceModule?,
+  private val peerConnectionFactory: PeerConnectionFactory,
+  private val signalingService: SignalingService,
+  private val audioDeviceModule: JavaAudioDeviceModule?,
 ) : TalkbackController {
 
-    private var localAudioSource: AudioSource? = null
-    private var localAudioTrack: AudioTrack? = null
+  private var localAudioSource: AudioSource? = null
+  private var localAudioTrack: AudioTrack? = null
 
-    private val _isTalkbackEnabled = MutableStateFlow(false)
-    override val isTalkbackEnabled: Flow<Boolean> = _isTalkbackEnabled
+  private val _isTalkbackEnabled = MutableStateFlow(false)
+  override val isTalkbackEnabled: Flow<Boolean> = _isTalkbackEnabled
 
-    /**
-     * Initialize the talkback controller.
-     *
-     * @param peerConnection The peer connection to use for talkback.
-     */
-    fun initialize(peerConnection: PeerConnection) {
-        localAudioSource = peerConnectionFactory.createAudioSource(MediaConstraints())
-        localAudioTrack = peerConnectionFactory.createAudioTrack("talkback", localAudioSource)
-        localAudioTrack?.setEnabled(false)
-        peerConnection.addTrack(localAudioTrack)
-        audioDeviceModule?.setMicrophoneMute(true) // start muted
-        _isTalkbackEnabled.value = false
-        Log.d(TAG, "Talkback initialized")
+  /**
+   * Initialize the talkback controller.
+   *
+   * @param peerConnection The peer connection to use for talkback.
+   */
+  fun initialize(peerConnection: PeerConnection) {
+    localAudioSource = peerConnectionFactory.createAudioSource(MediaConstraints())
+    localAudioTrack = peerConnectionFactory.createAudioTrack("talkback", localAudioSource)
+    localAudioTrack?.setEnabled(false)
+    peerConnection.addTrack(localAudioTrack)
+    audioDeviceModule?.setMicrophoneMute(true) // start muted
+    _isTalkbackEnabled.value = false
+    Log.d(TAG, "Talkback initialized")
+  }
+
+  private suspend fun startTalkback() {
+    Log.d(TAG, "Starting talkback")
+    if (signalingService.configureTalkback(true)) {
+      localAudioTrack?.setEnabled(true)
+      _isTalkbackEnabled.value = true
+      audioDeviceModule?.setMicrophoneMute(false)
     }
+  }
 
-    private suspend fun startTalkback() {
-        Log.d(TAG, "Starting talkback")
-        if (signalingService.configureTalkback(true)) {
-            localAudioTrack?.setEnabled(true)
-            _isTalkbackEnabled.value = true
-            audioDeviceModule?.setMicrophoneMute(false)
-        }
+  private suspend fun stopTalkback() {
+    Log.d(TAG, "Stopping talkback")
+    if (signalingService.configureTalkback(false)) {
+      localAudioTrack?.setEnabled(false)
+      _isTalkbackEnabled.value = false
+      audioDeviceModule?.setMicrophoneMute(true)
     }
+  }
 
-    private suspend fun stopTalkback() {
-        Log.d(TAG, "Stopping talkback")
-        if (signalingService.configureTalkback(false)) {
-            localAudioTrack?.setEnabled(false)
-            _isTalkbackEnabled.value = false
-            audioDeviceModule?.setMicrophoneMute(true)
-        }
+  override suspend fun toggleTalkback(enabled: Boolean) {
+    Log.d(TAG, "Toggling talkback: $enabled")
+    if (enabled) {
+      startTalkback()
+    } else {
+      stopTalkback()
     }
+  }
 
-    override suspend fun toggleTalkback(enabled: Boolean) {
-        Log.d(TAG, "Toggling talkback: $enabled")
-        if (enabled) {
-            startTalkback()
-        } else {
-            stopTalkback()
-        }
+  /** Dispose of the audio resources. */
+  suspend fun dispose() {
+    if (_isTalkbackEnabled.value) {
+      stopTalkback()
     }
+    localAudioSource?.dispose()
+    localAudioTrack?.dispose()
+    localAudioSource = null
+    localAudioTrack = null
+  }
 
-    /** Dispose of the audio resources. */
-    suspend fun dispose() {
-        if (_isTalkbackEnabled.value) {
-            stopTalkback()
-        }
-        localAudioSource?.dispose()
-        localAudioTrack?.dispose()
-        localAudioSource = null
-        localAudioTrack = null
-    }
-
-    companion object {
-        private const val TAG = "WebRtcTalkbackController"
-    }
+  companion object {
+    private const val TAG = "WebRtcTalkbackController"
+  }
 }

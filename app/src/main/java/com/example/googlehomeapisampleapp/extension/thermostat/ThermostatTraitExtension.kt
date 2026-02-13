@@ -13,7 +13,7 @@ See the License for the specific language governing permissions and
 limitations under the License.
 */
 
-package com.example.googlehomeapisampleapp.extension.ThermostatTraitExtension
+package com.example.googlehomeapisampleapp.extension.thermostat
 
 import com.google.home.matter.standard.Thermostat
 import com.google.home.matter.standard.ThermostatTrait
@@ -95,7 +95,7 @@ fun Thermostat.isValidHeatingSetpointUpdate(heatSetPointCentiDegrees: Short): Bo
  *
  * This only considers the occupiedCoolingSetpoint, which is mandatory on all
  * devices.
- 
+
  * @return The cooling setpoint value in centidegrees as a [Short].
  */
 fun Thermostat.getCoolingSetpoint(): Short? {
