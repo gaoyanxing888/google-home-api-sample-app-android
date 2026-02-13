@@ -37,237 +37,277 @@ import com.google.android.gms.home.matter.commissioning.CommissioningWindow
 import com.google.android.gms.home.matter.commissioning.ShareDeviceRequest
 import com.google.android.gms.home.matter.common.DeviceDescriptor
 import com.google.android.gms.home.matter.common.Discriminator
+import kotlin.random.Random
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.tasks.await
-import kotlin.random.Random
 
 private const val TAG = "CommissioningManager"
 
 enum class FabricType {
-    GOOGLE_FABRIC,
-    THIRD_PARTY_FABRIC,
-    GOOGLE_CAMERA
+  GOOGLE_FABRIC,
+  THIRD_PARTY_FABRIC,
+  GOOGLE_CAMERA
 }
 
 // Conceptual default values for the commissioning window
 internal object CommissioningDefaults {
-    const val OPEN_COMMISSIONING_WINDOW_DURATION_SECONDS = 180
-    const val ITERATION = 10000L
-    const val TEST_VENDOR_ID = 0xFFF1
-    const val TEST_PRODUCT_ID = 0x8000
+  const val OPEN_COMMISSIONING_WINDOW_DURATION_SECONDS = 180
+  const val ITERATION = 10000L
+  const val TEST_VENDOR_ID = 0xFFF1
+  const val TEST_PRODUCT_ID = 0x8000
 }
 
-class CommissioningManager(val context: Context, val scope: CoroutineScope, val activity: ComponentActivity) {
+class CommissioningManager(
+  val context: Context,
+  val scope: CoroutineScope,
+  val activity: ComponentActivity,
+) {
 
-    val commissioningResult: MutableStateFlow<CommissioningResult?> = MutableStateFlow(null)
-    val launcher: ActivityResultLauncher<IntentSenderRequest>
+  // OTA Screen Callback
+  /**
+   * Callback invoked when a camera device is successfully commissioned.
+   * This triggers the OTA information screen.
+   */
+  var onCameraCommissioned: (() -> Unit)? = null
 
-    // Share functionality members
-    val shareDeviceLauncher: ActivityResultLauncher<IntentSenderRequest>
-    private val chipClient: ChipClient = ChipClient(context)
-    private var lastCommissionedDeviceDescriptor: DeviceDescriptor? = null
+  /**
+   * Tracks whether we're expecting a camera device based on the fabric type
+   * used to initiate commissioning. Set to true when FabricType.GOOGLE_CAMERA is used.
+   */
+  private var expectingCameraDevice = false
 
-    // Links Home API ID (String) to Matter Node ID (Long)
-    private val operationalNodeIdMap: MutableMap<String, Long> = mutableMapOf()
+  val commissioningResult: MutableStateFlow<CommissioningResult?> = MutableStateFlow(null)
+  val launcher: ActivityResultLauncher<IntentSenderRequest>
 
-    init {
+  // Share functionality members
+  val shareDeviceLauncher: ActivityResultLauncher<IntentSenderRequest>
+  private val chipClient: ChipClient = ChipClient(context)
+  private var lastCommissionedDeviceDescriptor: DeviceDescriptor? = null
 
-        // Activity launcher to call commissioning callback and deliver the result:
-        launcher = activity.registerForActivityResult(StartIntentSenderForResult()) { result ->
-            scope.launch { commissioningCallback(result) }
-        }
+  // Links Home API ID (String) to Matter Node ID (Long)
+  private val operationalNodeIdMap: MutableMap<String, Long> = mutableMapOf()
 
-        // Launcher for the sharing intent result
-        shareDeviceLauncher = activity.registerForActivityResult(StartIntentSenderForResult()) {
-                result ->
-            val resultCode = result.resultCode
-            MainActivity.showDebug(this, "result code: $resultCode")
+  init {
 
-            if (resultCode == RESULT_OK) {
-                MainActivity.showInfo(this, "Share Device Successful!")
-            } else {
-                MainActivity.showError(this, "Share Device Failed: $resultCode")
-            }
-        }
+    // Activity launcher to call commissioning callback and deliver the result:
+    launcher = activity.registerForActivityResult(StartIntentSenderForResult()) { result ->
+      scope.launch { commissioningCallback(result) }
     }
 
-    private suspend fun commissioningCallback(activityResult: ActivityResult) {
-        if (activityResult.resultCode != RESULT_OK) {
-            // Log the cancellation code, which is often returned by the system on silent failure
-            Log.e(TAG, "Commissioning process cancelled by system or user. Code: ${activityResult.resultCode}")
+    // Launcher for the sharing intent result
+    shareDeviceLauncher =
+      activity.registerForActivityResult(StartIntentSenderForResult()) { result ->
+        val resultCode = result.resultCode
+        MainActivity.showDebug(this, "result code: $resultCode")
 
+        if (resultCode == RESULT_OK) {
+          MainActivity.showInfo(this, "Share Device Successful!")
+        } else {
+          MainActivity.showError(this, "Share Device Failed: $resultCode")
         }
+      }
+  }
 
-        try {
-            // Try to convert ActivityResult into CommissioningResult:
-            val result: CommissioningResult = CommissioningResult.fromIntentSenderResult(
-                activityResult.resultCode, activityResult.data)
-
-            // Save the DeviceDescriptor
-            lastCommissionedDeviceDescriptor = result.commissionedDeviceDescriptor
-            Log.i(TAG, "saving lastCommissionedDeviceDescriptor: $lastCommissionedDeviceDescriptor")
-
-            // The Matter Node ID (Long) comes from the custom service's token
-            val matterNodeId = result.token?.toLongOrNull()
-            Log.i(TAG, "matterNodeId = $matterNodeId")
-            // The Smart Home ID (String) comes from the deviceIds list
-            val smartHomeId = result.deviceIds?.firstOrNull()
-
-            // DIAGNOSTICS: Check values being used for mapping
-            Log.i(TAG, "COMMISSIONING RESULT: Token (Matter Node ID) = $matterNodeId, SmartHomeId = $smartHomeId")
-
-            // Only require matterNodeId (token) if we need to support the Share Device flow.
-            if (smartHomeId != null && matterNodeId != null) {
-                // MAPPING SAVED: This path is primarily for devices commissioned to the 3P Fabric
-                Log.i(TAG, "MAPPING SAVED: SmartHomeId=$smartHomeId -> MatterNodeId=$matterNodeId")
-                operationalNodeIdMap[smartHomeId] = matterNodeId
-            } else if (smartHomeId != null) {
-                // MAPPING SKIPPED: This path is executed for successful Google-only commissions (CAMERA flow)
-                Log.w(TAG, "MAPPING SKIPPED: Commissioned to Google Fabric. SmartHomeId received, but MatterNodeId is null.")
-            } else {
-                Log.e(TAG, "MAPPING FAILED: SmartHomeId was null. Cannot save share credentials.")
-            }
-
-            // Store the CommissioningResult in the StateFlow:
-            commissioningResult.emit(result)
-            // Record the commissioning success status:
-            MainActivity.showDebug(this, "Commissioning Success!")
-
-            val deviceIds = result.deviceIds
-            if (deviceIds != null) {
-                for (deviceId in deviceIds) {
-                    MainActivity.showDebug(this, "Commissioned Device ID: $deviceId")
-                }
-            }
-
-        } catch (exception: ApiException) {
-            // Record the exception for commissioning failure:
-            MainActivity.showError(
-                this,
-                "Commissioning Result: API Failure - Code: ${exception.statusCode} - Status: ${exception.status.statusMessage}"
-            )
-        } catch (e: Exception) {
-            MainActivity.showError(this, "Commissioning Callback Error: ${e.message}")
-            Log.e(TAG, "Error in commissioningCallback", e)
-        }
+  private suspend fun commissioningCallback(activityResult: ActivityResult) {
+    if (activityResult.resultCode != RESULT_OK) {
+      // Log the cancellation code, which is often returned by the system on silent failure
+      Log.e(
+        TAG,
+        "Commissioning process cancelled by system or user. Code: ${activityResult.resultCode}"
+      )
+      expectingCameraDevice = false
+      return
     }
 
-    fun requestCommissioning(
-        fabricType: FabricType,
-        payload: String? = null
-    ) {
-        // Retrieve the onboarding payload from the Activity Intent *only* if the payload wasn't provided
-        val activityIntentPayload = activity.intent?.getStringExtra(Matter.EXTRA_ONBOARDING_PAYLOAD)
+    try {
+      // Try to convert ActivityResult into CommissioningResult:
+      val result: CommissioningResult = CommissioningResult.fromIntentSenderResult(
+        activityResult.resultCode, activityResult.data
+      )
 
-        scope.launch {
-            // Determine the final payload to use (prefers argument payload)
-            val finalPayload = payload ?: activityIntentPayload
+      // Save the DeviceDescriptor
+      lastCommissionedDeviceDescriptor = result.commissionedDeviceDescriptor
+      Log.i(TAG, "saving lastCommissionedDeviceDescriptor: $lastCommissionedDeviceDescriptor")
 
-            // Create a commissioning request to store the device in Google's Fabric:
-            val builder = CommissioningRequest.builder()
-                .setOnboardingPayload(finalPayload)
+      // The Matter Node ID (Long) comes from the custom service's token
+      val matterNodeId = result.token?.toLongOrNull()
+      Log.i(TAG, "matterNodeId = $matterNodeId")
+      // The Smart Home ID (String) comes from the deviceIds list
+      val smartHomeId = result.deviceIds?.firstOrNull()
 
-            when (fabricType) {
-                FabricType.GOOGLE_FABRIC, FabricType.GOOGLE_CAMERA -> {
-                    builder.setStoreToGoogleFabric(true)
-                }
-                FabricType.THIRD_PARTY_FABRIC -> {
-                    builder.setStoreToGoogleFabric(false)
-                    builder.setCommissioningService(
-                        ComponentName(context, ThirdPartyCommissioningService::class.java)
-                    )
-                }
-            }
+      // DIAGNOSTICS: Check values being used for mapping
+      Log.i(
+        TAG,
+        "COMMISSIONING RESULT: Token (Matter Node ID) = $matterNodeId, SmartHomeId = $smartHomeId"
+      )
 
-            val request = builder.build()
+      // Only require matterNodeId (token) if we need to support the Share Device flow.
+      if (smartHomeId != null && matterNodeId != null) {
+        // MAPPING SAVED: This path is primarily for devices commissioned to the 3P Fabric
+        Log.i(TAG, "MAPPING SAVED: SmartHomeId=$smartHomeId -> MatterNodeId=$matterNodeId")
+        operationalNodeIdMap[smartHomeId] = matterNodeId
+      } else if (smartHomeId != null) {
+        // MAPPING SKIPPED: This path is executed for successful Google-only commissions (CAMERA flow)
+        Log.w(
+          TAG,
+          "MAPPING SKIPPED: Commissioned to Google Fabric. SmartHomeId received, but MatterNodeId is null."
+        )
+      } else {
+        Log.e(TAG, "MAPPING FAILED: SmartHomeId was null. Cannot save share credentials.")
+      }
 
-            // Initialize client and sender for commissioning intent:
-            val client: CommissioningClient = Matter.getCommissioningClient(context)
-            val sender: IntentSender = client.commissionDevice(request).await()
-            // Launch the commissioning intent on the launcher:
-            launcher.launch(IntentSenderRequest.Builder(sender).build())
+      // Store the CommissioningResult in the StateFlow:
+      commissioningResult.emit(result)
+      // Record the commissioning success status:
+      MainActivity.showDebug(this, "Commissioning Success!")
+
+      val deviceIds = result.deviceIds
+      if (deviceIds != null) {
+        for (deviceId in deviceIds) {
+          MainActivity.showDebug(this, "Commissioned Device ID: $deviceId")
+
+          // Only show OTA screen if commissioned through GOOGLE_CAMERA flow
+          if (expectingCameraDevice) {
+            onCameraCommissioned?.invoke()
+          }
         }
+      }
+
+    } catch (exception: ApiException) {
+      // Record the exception for commissioning failure:
+      MainActivity.showError(
+        this,
+        "Commissioning Result: API Failure - Code: ${exception.statusCode} - Status: ${exception.status.statusMessage}"
+      )
+    } catch (e: Exception) {
+      MainActivity.showError(this, "Commissioning Callback Error: ${e.message}")
+      Log.e(TAG, "Error in commissioningCallback", e)
+    } finally {
+      expectingCameraDevice = false
     }
+  }
 
-    private fun generateNewCommissioningData(): Pair<Long, Int> {
-        val newPasscode: Long = Random.nextLong(100000, 1000000)
-        val newDiscriminator: Int = Random.nextInt(4096)
-        return Pair(newPasscode, newDiscriminator)
-    }
+  fun requestCommissioning(
+    fabricType: FabricType,
+    payload: String? = null,
+  ) {
+    // Set flag to true only for camera commissioning flow
+    expectingCameraDevice = (fabricType == FabricType.GOOGLE_CAMERA)
 
-    fun requestShareDevice(smartHomeId: String) {
-        scope.launch {
-            try {
-                Log.i(TAG, "requestShareDevice() called for SmartHomeId: $smartHomeId")
+    // Retrieve the onboarding payload from the Activity Intent *only* if the payload wasn't provided
+    val activityIntentPayload = activity.intent?.getStringExtra(Matter.EXTRA_ONBOARDING_PAYLOAD)
 
-                // Look up the Matter Operational Node ID (Long)
-                val matterNodeId = operationalNodeIdMap[smartHomeId]
-                    ?: throw IllegalStateException("Matter Node ID not found for ID: $smartHomeId. Did you commission the device and is the app still running?")
+    scope.launch {
+      // Determine the final payload to use (prefers argument payload)
+      val finalPayload = payload ?: activityIntentPayload
 
-                // Generate unique, temporary credentials
-                val (newPasscode, newDiscriminator) = generateNewCommissioningData()
-                val windowDurationSeconds: Long = CommissioningDefaults.OPEN_COMMISSIONING_WINDOW_DURATION_SECONDS.toLong()
-                Log.i(TAG, "Generated New Passcode: $newPasscode, Discriminator: $newDiscriminator")
+      // Create a commissioning request to store the device in Google's Fabric:
+      val builder = CommissioningRequest.builder()
+        .setOnboardingPayload(finalPayload)
 
-                // Reopen commissioning window (requires pointer)
-                // Retries are handled inside awaitGetConnectedDevicePointer()
-                val connectedDevicePointer = chipClient.awaitGetConnectedDevicePointer(matterNodeId)
-
-                chipClient.awaitOpenPairingWindowWithPIN(
-                    connectedDevicePointer,
-                    CommissioningDefaults.OPEN_COMMISSIONING_WINDOW_DURATION_SECONDS,
-                    CommissioningDefaults.ITERATION,
-                    newDiscriminator,
-                    newPasscode,
-                )
-                Log.i(TAG, "Device pairing window successfully commanded to open with new credentials.")
-
-                // Add stabilization delay to bridge the network timing gap
-                delay(1000)
-                Log.i(TAG, "Waited 1 second for device to start advertising new window.")
-
-                // Set up the CommissioningWindow object
-                val commissioningWindow =
-                    CommissioningWindow.builder()
-                        .setDiscriminator(Discriminator.forLongValue(newDiscriminator))
-                        .setPasscode(newPasscode)
-                        .setWindowOpenMillis(SystemClock.elapsedRealtime())
-                        .setDurationSeconds(windowDurationSeconds)
-                        .build()
-
-                // Get Device Descriptor
-                val deviceDescriptor =
-                    lastCommissionedDeviceDescriptor ?: // Use saved descriptor
-                    DeviceDescriptor.builder() // Fallback to test IDs if not saved
-                        .setVendorId(CommissioningDefaults.TEST_VENDOR_ID)
-                        .setProductId(CommissioningDefaults.TEST_PRODUCT_ID)
-                        .build()
-
-                // Create the ShareDeviceRequest
-                val shareDeviceRequest = deviceDescriptor.let {
-                    ShareDeviceRequest.builder()
-                        .setDeviceDescriptor(it)
-                        .setDeviceName("Share Target")
-                        .setCommissioningWindow(commissioningWindow)
-                        .build()
-                }
-
-                // Launch the sharing intent
-                val client: CommissioningClient = Matter.getCommissioningClient(context)
-                val sender: IntentSender? = shareDeviceRequest.let { client.shareDevice(it).await() }
-
-                // Launch the intent using the shareDeviceLauncher.
-                sender?.let { IntentSenderRequest.Builder(it).build() }
-                    ?.let { shareDeviceLauncher.launch(it) }
-
-                MainActivity.showInfo(this, "shareDeviceLauncher launched")
-
-            } catch (e: Exception) {
-                MainActivity.showError(this, "Error sharing device: ${e.message}")
-            }
+      when (fabricType) {
+        FabricType.GOOGLE_FABRIC, FabricType.GOOGLE_CAMERA -> {
+          builder.setStoreToGoogleFabric(true)
         }
+
+        FabricType.THIRD_PARTY_FABRIC -> {
+          builder.setStoreToGoogleFabric(false)
+          builder.setCommissioningService(
+            ComponentName(context, ThirdPartyCommissioningService::class.java)
+          )
+        }
+      }
+
+      val request = builder.build()
+
+      // Initialize client and sender for commissioning intent:
+      val client: CommissioningClient = Matter.getCommissioningClient(context)
+      val sender: IntentSender = client.commissionDevice(request).await()
+      // Launch the commissioning intent on the launcher:
+      launcher.launch(IntentSenderRequest.Builder(sender).build())
     }
+  }
+
+  private fun generateNewCommissioningData(): Pair<Long, Int> {
+    val newPasscode: Long = Random.nextLong(100000, 1000000)
+    val newDiscriminator: Int = Random.nextInt(4096)
+    return Pair(newPasscode, newDiscriminator)
+  }
+
+  fun requestShareDevice(smartHomeId: String) {
+    scope.launch {
+      try {
+        Log.i(TAG, "requestShareDevice() called for SmartHomeId: $smartHomeId")
+
+        // Look up the Matter Operational Node ID (Long)
+        val matterNodeId = operationalNodeIdMap[smartHomeId]
+          ?: throw IllegalStateException("Matter Node ID not found for ID: $smartHomeId. Did you commission the device and is the app still running?")
+
+        // Generate unique, temporary credentials
+        val (newPasscode, newDiscriminator) = generateNewCommissioningData()
+        val windowDurationSeconds: Long =
+          CommissioningDefaults.OPEN_COMMISSIONING_WINDOW_DURATION_SECONDS.toLong()
+        Log.i(TAG, "Generated New Passcode: $newPasscode, Discriminator: $newDiscriminator")
+
+        // Reopen commissioning window (requires pointer)
+        // Retries are handled inside awaitGetConnectedDevicePointer()
+        val connectedDevicePointer = chipClient.awaitGetConnectedDevicePointer(matterNodeId)
+
+        chipClient.awaitOpenPairingWindowWithPIN(
+          connectedDevicePointer,
+          CommissioningDefaults.OPEN_COMMISSIONING_WINDOW_DURATION_SECONDS,
+          CommissioningDefaults.ITERATION,
+          newDiscriminator,
+          newPasscode,
+        )
+        Log.i(TAG, "Device pairing window successfully commanded to open with new credentials.")
+
+        // Add stabilization delay to bridge the network timing gap
+        delay(1000)
+        Log.i(TAG, "Waited 1 second for device to start advertising new window.")
+
+        // Set up the CommissioningWindow object
+        val commissioningWindow =
+          CommissioningWindow.builder()
+            .setDiscriminator(Discriminator.forLongValue(newDiscriminator))
+            .setPasscode(newPasscode)
+            .setWindowOpenMillis(SystemClock.elapsedRealtime())
+            .setDurationSeconds(windowDurationSeconds)
+            .build()
+
+        // Get Device Descriptor
+        val deviceDescriptor =
+          lastCommissionedDeviceDescriptor ?: // Use saved descriptor
+          DeviceDescriptor.builder() // Fallback to test IDs if not saved
+            .setVendorId(CommissioningDefaults.TEST_VENDOR_ID)
+            .setProductId(CommissioningDefaults.TEST_PRODUCT_ID)
+            .build()
+
+        // Create the ShareDeviceRequest
+        val shareDeviceRequest = deviceDescriptor.let {
+          ShareDeviceRequest.builder()
+            .setDeviceDescriptor(it)
+            .setDeviceName("Share Target")
+            .setCommissioningWindow(commissioningWindow)
+            .build()
+        }
+
+        // Launch the sharing intent
+        val client: CommissioningClient = Matter.getCommissioningClient(context)
+        val sender: IntentSender? = shareDeviceRequest.let { client.shareDevice(it).await() }
+
+        // Launch the intent using the shareDeviceLauncher.
+        sender?.let { IntentSenderRequest.Builder(it).build() }
+          ?.let { shareDeviceLauncher.launch(it) }
+
+        MainActivity.showInfo(this, "shareDeviceLauncher launched")
+
+      } catch (e: Exception) {
+        MainActivity.showError(this, "Error sharing device: ${e.message}")
+      }
+    }
+  }
 }

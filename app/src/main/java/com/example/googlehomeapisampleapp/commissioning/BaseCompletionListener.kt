@@ -27,7 +27,7 @@ private const val TAG = "BaseCompletionListener"
  */
 abstract class BaseCompletionListener : ChipDeviceController.CompletionListener {
   override fun onConnectDeviceComplete() {
-    Log.d(TAG ,"onConnectDeviceComplete()")
+    Log.d(TAG, "onConnectDeviceComplete()")
   }
 
   override fun onStatusUpdate(status: Int) {
@@ -43,8 +43,10 @@ abstract class BaseCompletionListener : ChipDeviceController.CompletionListener 
   }
 
   override fun onCommissioningComplete(nodeId: Long, errorCode: Int) {
-    Log.d(TAG,
-        "BaseCompletionListener onCommissioningComplete(): nodeId [${nodeId}] errorCode [${errorCode}]")
+    Log.d(
+      TAG,
+      "BaseCompletionListener onCommissioningComplete(): nodeId [${nodeId}] errorCode [${errorCode}]"
+    )
   }
 
   override fun onNotifyChipConnectionClosed() {
@@ -56,7 +58,7 @@ abstract class BaseCompletionListener : ChipDeviceController.CompletionListener 
   }
 
   override fun onError(error: Throwable) {
-     Log.e(TAG, "onError(): ${error.message}")
+    Log.e(TAG, "onError(): ${error.message}")
   }
 
   override fun onOpCSRGenerationComplete(csr: ByteArray) {
@@ -64,17 +66,21 @@ abstract class BaseCompletionListener : ChipDeviceController.CompletionListener 
   }
 
   override fun onReadCommissioningInfo(
-      vendorId: Int,
-      productId: Int,
-      wifiEndpointId: Int,
-      threadEndpointId: Int
+    vendorId: Int,
+    productId: Int,
+    wifiEndpointId: Int,
+    threadEndpointId: Int,
   ) {
-    Log.d(TAG,
-        "onReadCommissioningInfo: vendorId [${vendorId}]  productId [${productId}]  wifiEndpointId [${wifiEndpointId}] threadEndpointId [${threadEndpointId}]")
+    Log.d(
+      TAG,
+      "onReadCommissioningInfo: vendorId [${vendorId}]  productId [${productId}]  wifiEndpointId [${wifiEndpointId}] threadEndpointId [${threadEndpointId}]"
+    )
   }
 
   override fun onCommissioningStatusUpdate(nodeId: Long, stage: String?, errorCode: Int) {
-    Log.d(TAG,
-        "onCommissioningStatusUpdate nodeId [${nodeId}]  stage [${stage}]  errorCode [${errorCode}]")
+    Log.d(
+      TAG,
+      "onCommissioningStatusUpdate nodeId [${nodeId}]  stage [${stage}]  errorCode [${errorCode}]"
+    )
   }
 }

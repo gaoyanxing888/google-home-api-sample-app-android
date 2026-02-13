@@ -1,4 +1,3 @@
-
 /* Copyright 2025 Google LLC
 
 Licensed under the Apache License, Version 2.0 (the "License");
@@ -31,40 +30,40 @@ import kotlinx.coroutines.CoroutineScope
  * @property homeClientProvider The provider for obtaining a [HomeClient] instance.
  */
 class HomeApp(
-    val context: Context,
-    val scope: CoroutineScope,
-    val activity: ComponentActivity,
-    val homeClientProvider: HomeClientProvider
+  val context: Context,
+  val scope: CoroutineScope,
+  val activity: ComponentActivity,
+  val homeClientProvider: HomeClientProvider,
 ) {
 
-    /**
-     * The primary object to use all Home APIs.
-     */
-    var homeClient: HomeClient
+  /**
+   * The primary object to use all Home APIs.
+   */
+  var homeClient: HomeClient
 
-    /**
-     * Manages runtime permissions for the application.
-     */
-    val permissionsManager : PermissionsManager
+  /**
+   * Manages runtime permissions for the application.
+   */
+  val permissionsManager: PermissionsManager
 
-    /**
-     * Manages commissioning of Matter devices.
-     */
-    val commissioningManager : CommissioningManager
+  /**
+   * Manages commissioning of Matter devices.
+   */
+  val commissioningManager: CommissioningManager
 
-    init {
-        Log.i(TAG, "HomeApp init")
-        // Initialize the HomeClient, which is the primary object to use all Home APIs:
-        homeClient = homeClientProvider.getClient()
+  init {
+    Log.i(TAG, "HomeApp init")
+    // Initialize the HomeClient, which is the primary object to use all Home APIs:
+    homeClient = homeClientProvider.getClient()
 
-        // Initialize supporting classes for Permissions and Commissioning APIs:
-        Log.d(TAG, "create PermissionsManager")
-        permissionsManager = PermissionsManager(context, scope, activity, homeClient)
-        Log.d(TAG, "create CommissioningManager")
-        commissioningManager = CommissioningManager(context, scope, activity)
-    }
+    // Initialize supporting classes for Permissions and Commissioning APIs:
+    Log.d(TAG, "create PermissionsManager")
+    permissionsManager = PermissionsManager(scope, activity, homeClient)
+    Log.d(TAG, "create CommissioningManager")
+    commissioningManager = CommissioningManager(context, scope, activity)
+  }
 
-    companion object {
-        const val TAG = "HomeApp"
-    }
+  companion object {
+    const val TAG = "HomeApp"
+  }
 }

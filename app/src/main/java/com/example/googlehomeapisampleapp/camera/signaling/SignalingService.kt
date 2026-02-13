@@ -1,3 +1,18 @@
+/* Copyright 2025 Google LLC
+
+Licensed under the Apache License, Version 2.0 (the "License");
+you may not use this file except in compliance with the License.
+You may obtain a copy of the License at
+
+    https://www.apache.org/licenses/LICENSE-2.0
+
+Unless required by applicable law or agreed to in writing, software
+distributed under the License is distributed on an "AS IS" BASIS,
+WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+See the License for the specific language governing permissions and
+limitations under the License.
+*/
+
 package com.example.googlehomeapisampleapp.camera.signaling
 
 /**
@@ -6,74 +21,74 @@ package com.example.googlehomeapisampleapp.camera.signaling
  */
 interface SignalingService {
 
+  /**
+   * Data class for an SDP offer or answer.
+   *
+   * @property rawSdp The raw SDP string.
+   */
+  data class Sdp(val rawSdp: String)
+
+  /** Sealed interface for the response to a sendOffer request. */
+  sealed interface SendOfferResponse {
     /**
-     * Data class for an SDP offer or answer.
+     * The response was an offer.
      *
-     * @property rawSdp The raw SDP string.
+     * @property sdp The SDP offer.
      */
-    data class Sdp(val rawSdp: String)
-
-    /** Sealed interface for the response to a sendOffer request. */
-    sealed interface SendOfferResponse {
-        /**
-         * The response was an offer.
-         *
-         * @property sdp The SDP offer.
-         */
-        data class Offer(val sdp: Sdp) : SendOfferResponse
-
-        /**
-         * The response was an answer.
-         *
-         * @property sdp The SDP answer.
-         */
-        data class Answer(val sdp: Sdp) : SendOfferResponse
-
-        /**
-         * The request failed.
-         *
-         * @property error The error that occurred.
-         */
-        data class Error(val errorMessage: String) : SendOfferResponse
-    }
-
-    /** Sealed interface for the response to a sendAnswer request. */
-    sealed interface SendAnswerResponse {
-        /** The request was successful. */
-        data object Ok : SendAnswerResponse
-
-        /**
-         * The request failed.
-         *
-         * @property error The error that occurred.
-         */
-        data class Error(val errorMessage: String) : SendAnswerResponse
-    }
+    data class Offer(val sdp: Sdp) : SendOfferResponse
 
     /**
-     * Sends an SDP offer to the signaling service.
+     * The response was an answer.
      *
-     * @param sdpOffer The SDP offer to send.
-     * @return The response from the signaling service.
+     * @property sdp The SDP answer.
      */
-    suspend fun sendOffer(sdpOffer: Sdp): SendOfferResponse
+    data class Answer(val sdp: Sdp) : SendOfferResponse
 
     /**
-     * Sends an SDP answer to the signaling service.
+     * The request failed.
      *
-     * @param sdpAnswer The SDP answer to send.
-     * @return The response from the signaling service.
+     * @property error The error that occurred.
      */
-    suspend fun sendAnswer(sdpAnswer: String): SendAnswerResponse
+    data class Error(val errorMessage: String) : SendOfferResponse
+  }
+
+  /** Sealed interface for the response to a sendAnswer request. */
+  sealed interface SendAnswerResponse {
+    /** The request was successful. */
+    data object Ok : SendAnswerResponse
 
     /**
-     * Configures talkback on or off.
+     * The request failed.
      *
-     * @param enabled Whether to enable or disable talkback.
-     * @return Whether talkback was configured successfully.
+     * @property error The error that occurred.
      */
-    suspend fun configureTalkback(enabled: Boolean): Boolean
+    data class Error(val errorMessage: String) : SendAnswerResponse
+  }
 
-    /** Disposes of the signaling service and releases all resources. */
-    suspend fun dispose() {}
+  /**
+   * Sends an SDP offer to the signaling service.
+   *
+   * @param sdpOffer The SDP offer to send.
+   * @return The response from the signaling service.
+   */
+  suspend fun sendOffer(sdpOffer: Sdp): SendOfferResponse
+
+  /**
+   * Sends an SDP answer to the signaling service.
+   *
+   * @param sdpAnswer The SDP answer to send.
+   * @return The response from the signaling service.
+   */
+  suspend fun sendAnswer(sdpAnswer: String): SendAnswerResponse
+
+  /**
+   * Configures talkback on or off.
+   *
+   * @param enabled Whether to enable or disable talkback.
+   * @return Whether talkback was configured successfully.
+   */
+  suspend fun configureTalkback(enabled: Boolean): Boolean
+
+  /** Disposes of the signaling service and releases all resources. */
+  suspend fun dispose() {}
 }

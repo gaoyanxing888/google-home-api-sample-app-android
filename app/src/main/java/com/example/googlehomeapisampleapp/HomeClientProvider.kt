@@ -24,10 +24,10 @@ import com.google.home.HomeClient
 import com.google.home.HomeConfig
 import com.google.home.UserAccount
 import dagger.hilt.android.qualifiers.ApplicationContext
+import kotlinx.coroutines.Dispatchers
 import javax.inject.Inject
 import javax.inject.Singleton
 import kotlin.time.measureTimedValue
-import kotlinx.coroutines.Dispatchers
 
 
 /**
@@ -39,73 +39,73 @@ import kotlinx.coroutines.Dispatchers
  */
 @Singleton
 class HomeClientProvider @Inject constructor(
-    @ApplicationContext private val applicationContext: Context,
-    private val homeConfig: HomeConfig,
-    private val factoryRegistry: FactoryRegistry
+  @ApplicationContext private val applicationContext: Context,
+  private val homeConfig: HomeConfig,
+  private val factoryRegistry: FactoryRegistry,
 ) {
 
-    private var homeClient: HomeClient? = null
-    companion object {
-      private const val TAG = "HomeClientProvider"
+  private var homeClient: HomeClient? = null
+
+  companion object {
+    private const val TAG = "HomeClientProvider"
+  }
+
+  /**
+   * Returns the current [HomeClient] instance. If the client has not been initialized, it will be
+   * created.
+   *
+   * @return The [HomeClient] instance.
+   */
+  fun getClient(): HomeClient {
+    synchronized(this) {
+      if (homeClient == null) {
+        Log.d(TAG, "create a new HomeClient instance since homeClient is null")
+        homeClient = createHomeClient("", homeConfig)
+      }
+      return homeClient!!
     }
+  }
 
-    /**
-     * Returns the current [HomeClient] instance. If the client has not been initialized, it will be
-     * created.
-     *
-     * @return The [HomeClient] instance.
-     */
-    fun getClient(): HomeClient {
-        synchronized(this) {
-            if (homeClient == null) {
-                Log.d(TAG, "create a new HomeClient instance since homeClient is null")
-                homeClient = createHomeClient("", homeConfig)
-            }
-            return homeClient!!
-        }
-    }
+  /**
+   * Switches the current account and re-initializes the [HomeClient].
+   *
+   * @param userId The ID of the new user account.
+   */
+  fun switchAccount(userId: String, serverClientId: String) {
+    Log.d(TAG, "applicationContext.packageName: ${applicationContext.packageName}")
+    Log.d(TAG, "serverClientId: $serverClientId")
 
-    /**
-     * Switches the current account and re-initializes the [HomeClient].
-     *
-     * @param userId The ID of the new user account.
-     */
-    fun switchAccount(userId: String, serverClientId: String ) {
-        Log.d(TAG, "applicationContext.packageName: ${applicationContext.packageName}")
-        Log.d(TAG, "serverClientId: $serverClientId")
+    val config = HomeConfig(
+      coroutineContext = Dispatchers.IO,
+      factoryRegistry = factoryRegistry,
+      serverClientId = serverClientId
+    )
+    Log.i(TAG, "AccountManager switching account to $userId")
+    homeClient = createHomeClient(userId, config)
+  }
 
-        val config = HomeConfig(
-            coroutineContext = Dispatchers.IO,
-            factoryRegistry = factoryRegistry,
-            serverClientId = serverClientId
+  private fun createHomeClient(userId: String, config: HomeConfig): HomeClient {
+    val client = measureTimedValue {
+      if (userId.isEmpty()) {
+        Log.i(TAG, "createHomeClient without account")
+        Home.getClient(applicationContext, homeConfig = config)
+      } else {
+        Log.i(TAG, "createHomeClient with account $userId")
+        Home.getClient(
+          applicationContext,
+          account = lazy {
+            UserAccount.GoogleAccount(
+              account = Account(
+                userId,
+                "com.google"
+              )
+            )
+          },
+          homeConfig = config,
         )
-        Log.i(TAG, "AccountManager switching account to $userId")
-        homeClient = createHomeClient(userId, config)
+      }
+    }.also {
+      Log.i(TAG, "HomeSDK construction took ${it.duration.inWholeMilliseconds} ms.")
     }
-
-    private fun createHomeClient(userId: String, config: HomeConfig): HomeClient {
-        val client = measureTimedValue {
-            if (userId.isEmpty()) {
-                Log.i(TAG, "createHomeClient without account")
-                Home.getClient(applicationContext, homeConfig = config)
-            } else {
-                Log.i(TAG, "createHomeClientt with account $userId")
-                Home.getClient(
-                    applicationContext,
-                    account = lazy {
-                        UserAccount.GoogleAccount(
-                            account = Account(
-                                userId,
-                                "com.google"
-                            )
-                        )
-                    },
-                    homeConfig = config,
-                )
-            }
-        }.also {
-            Log.i(TAG, "HomeSDK construction took ${it.duration.inWholeMilliseconds} ms.")
-        }
-        return client.value
-    }
+    return checkNotNull(client.value) { "HomeClient is null. Ensure createClient() succeeded." }  }
 }

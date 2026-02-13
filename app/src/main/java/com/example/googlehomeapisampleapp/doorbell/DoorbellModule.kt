@@ -1,4 +1,4 @@
-/* Copyright 2025 Google LLC
+/* Copyright 2026 Google LLC
 
 Licensed under the Apache License, Version 2.0 (the "License");
 you may not use this file except in compliance with the License.
@@ -12,16 +12,21 @@ WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 See the License for the specific language governing permissions and
 limitations under the License.
 */
-package com.example.googlehomeapisampleapp
+package com.example.googlehomeapisampleapp.doorbell
 
-/**
- * Object containing keys used for accessing values in [android.content.SharedPreferences].
- */
-object SharedPreferencesKeys {
-  /** The name of the SharedPreferences file. */
-  const val PREFS_NAME = "SampleAppPrefs"
-  /** The key for storing the user ID. */
-  const val KEY_USER_ID = "user_id"
-  /** The key for storing the authentication token. */
-  const val KEY_AUTH_TOKEN = "auth_token"
+import dagger.Binds
+import dagger.Module
+import dagger.hilt.InstallIn
+import dagger.hilt.components.SingletonComponent
+import javax.inject.Singleton
+
+@Module
+@InstallIn(SingletonComponent::class)
+interface DoorbellModule {
+
+    @Binds
+    @Singleton
+    fun bindDoorbellChimeControllerFactory(
+        impl: DoorbellChimeControllerFactoryImpl
+    ): DoorbellChimeControllerFactory
 }
