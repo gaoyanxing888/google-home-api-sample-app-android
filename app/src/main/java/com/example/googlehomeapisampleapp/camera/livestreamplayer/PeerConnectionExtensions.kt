@@ -1,3 +1,18 @@
+/* Copyright 2025 Google LLC
+
+Licensed under the Apache License, Version 2.0 (the "License");
+you may not use this file except in compliance with the License.
+You may obtain a copy of the License at
+
+    https://www.apache.org/licenses/LICENSE-2.0
+
+Unless required by applicable law or agreed to in writing, software
+distributed under the License is distributed on an "AS IS" BASIS,
+WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+See the License for the specific language governing permissions and
+limitations under the License.
+*/
+
 package com.example.googlehomeapisampleapp.camera.livestreamplayer
 
 import android.util.Log
@@ -29,55 +44,55 @@ private const val TAG = "WebRtcPlayerExtensions"
  * @property SetFailure The response for a failed set local/remote description.
  */
 sealed interface PeerConnectionObserverResponse {
-    /**
-     * The response for a successful create offer/answer.
-     *
-     * @property rawSdp The raw SDP string.
-     */
-    data class CreateSuccess(val rawSdp: String) : PeerConnectionObserverResponse
+  /**
+   * The response for a successful create offer/answer.
+   *
+   * @property rawSdp The raw SDP string.
+   */
+  data class CreateSuccess(val rawSdp: String) : PeerConnectionObserverResponse
 
-    /**
-     * The response for a failed create offer/answer.
-     *
-     * @property error The error message.
-     */
-    data class CreateFailure(val error: String) : PeerConnectionObserverResponse
+  /**
+   * The response for a failed create offer/answer.
+   *
+   * @property error The error message.
+   */
+  data class CreateFailure(val error: String) : PeerConnectionObserverResponse
 
-    /** The response for a successful set local/remote description. */
-    class SetSuccess() : PeerConnectionObserverResponse
+  /** The response for a successful set local/remote description. */
+  class SetSuccess() : PeerConnectionObserverResponse
 
-    /**
-     * The response for a failed set local/remote description.
-     *
-     * @property error The error message.
-     */
-    data class SetFailure(val error: String) : PeerConnectionObserverResponse
+  /**
+   * The response for a failed set local/remote description.
+   *
+   * @property error The error message.
+   */
+  data class SetFailure(val error: String) : PeerConnectionObserverResponse
 }
 
 internal suspend fun PeerConnection.setRemoteDescription(
-    type: SessionDescription.Type,
-    sdp: String,
+  type: SessionDescription.Type,
+  sdp: String,
 ): PeerConnectionObserverResponse = suspendCancellableCoroutine { cont ->
-    setRemoteDescription(DefaultSdpObserver(cont), SessionDescription(type, sdp))
+  setRemoteDescription(DefaultSdpObserver(cont), SessionDescription(type, sdp))
 }
 
 internal suspend fun PeerConnection.setLocalDescription(
-    type: SessionDescription.Type,
-    sdp: String,
+  type: SessionDescription.Type,
+  sdp: String,
 ): PeerConnectionObserverResponse = suspendCancellableCoroutine { cont ->
-    setLocalDescription(DefaultSdpObserver(cont), SessionDescription(type, sdp))
+  setLocalDescription(DefaultSdpObserver(cont), SessionDescription(type, sdp))
 }
 
 internal suspend fun PeerConnection.createAnswer(
-    mediaConstraints: MediaConstraints
+  mediaConstraints: MediaConstraints,
 ): PeerConnectionObserverResponse = suspendCancellableCoroutine { cont ->
-    createAnswer(DefaultSdpObserver(cont), mediaConstraints)
+  createAnswer(DefaultSdpObserver(cont), mediaConstraints)
 }
 
 internal suspend fun PeerConnection.createOffer(
-    mediaConstraints: MediaConstraints
+  mediaConstraints: MediaConstraints,
 ): PeerConnectionObserverResponse = suspendCancellableCoroutine { cont ->
-    createOffer(DefaultSdpObserver(cont), mediaConstraints)
+  createOffer(DefaultSdpObserver(cont), mediaConstraints)
 }
 
 /**
@@ -86,10 +101,10 @@ internal suspend fun PeerConnection.createOffer(
  * @return The created data channel, or null if creation fails.
  */
 internal fun PeerConnection.createDataChannel(name: String): DataChannel {
-    val init = DataChannel.Init()
-    init.ordered = true
-    val dataChannel = requireNotNull(this.createDataChannel(name, init))
-    return dataChannel
+  val init = DataChannel.Init()
+  init.ordered = true
+  val dataChannel = requireNotNull(this.createDataChannel(name, init))
+  return dataChannel
 }
 
 /**
@@ -97,149 +112,149 @@ internal fun PeerConnection.createDataChannel(name: String): DataChannel {
  * operation completes.
  */
 internal class DefaultSdpObserver(private val cont: Continuation<PeerConnectionObserverResponse>) :
-    SdpObserver {
+  SdpObserver {
 
-    override fun onCreateSuccess(sdp: SessionDescription) {
-        Log.d(TAG, "onCreateSuccess: ${sdp.description}")
-        cont.resume(PeerConnectionObserverResponse.CreateSuccess(sdp.description))
-    }
+  override fun onCreateSuccess(sdp: SessionDescription) {
+    Log.d(TAG, "onCreateSuccess: ${sdp.description}")
+    cont.resume(PeerConnectionObserverResponse.CreateSuccess(sdp.description))
+  }
 
-    override fun onSetSuccess() {
-        Log.d(TAG, "onSetSuccess")
-        cont.resume(PeerConnectionObserverResponse.SetSuccess())
-    }
+  override fun onSetSuccess() {
+    Log.d(TAG, "onSetSuccess")
+    cont.resume(PeerConnectionObserverResponse.SetSuccess())
+  }
 
-    override fun onCreateFailure(error: String) {
-        Log.d(TAG, "onCreateFailure: $error")
-        cont.resume(PeerConnectionObserverResponse.CreateFailure(error))
-    }
+  override fun onCreateFailure(error: String) {
+    Log.d(TAG, "onCreateFailure: $error")
+    cont.resume(PeerConnectionObserverResponse.CreateFailure(error))
+  }
 
-    override fun onSetFailure(error: String) {
-        Log.d(TAG, "onSetFailure: $error")
-        cont.resume(PeerConnectionObserverResponse.SetFailure(error))
-    }
+  override fun onSetFailure(error: String) {
+    Log.d(TAG, "onSetFailure: $error")
+    cont.resume(PeerConnectionObserverResponse.SetFailure(error))
+  }
 }
 
 fun PeerConnectionFactory.createPeerConnection(
-    rtcConfig: PeerConnection.RTCConfiguration,
-    callback: (PeerConnection) -> Unit,
+  rtcConfig: PeerConnection.RTCConfiguration,
+  callback: (PeerConnection) -> Unit,
 ): Flow<PeerConnectionObserverEvent> = callbackFlow {
-    val peerConnection =
-        requireNotNull(
-            createPeerConnection(
-                rtcConfig,
-                object : PeerConnection.Observer {
-                    override fun onSignalingChange(newState: PeerConnection.SignalingState?) {
-                        Log.i(TAG, "onSignalingChange: $newState")
-                        val unused = trySend(PeerConnectionObserverEvent.SignalingChangeEvent(newState))
-                        if (newState == PeerConnection.SignalingState.CLOSED) {
-                            channel.close()
-                        }
-                    }
+  val peerConnection =
+    requireNotNull(
+      createPeerConnection(
+        rtcConfig,
+        object : PeerConnection.Observer {
+          override fun onSignalingChange(newState: PeerConnection.SignalingState?) {
+            Log.i(TAG, "onSignalingChange: $newState")
+            val unused = trySend(PeerConnectionObserverEvent.SignalingChangeEvent(newState))
+            if (newState == PeerConnection.SignalingState.CLOSED) {
+              channel.close()
+            }
+          }
 
-                    override fun onConnectionChange(newState: PeerConnection.PeerConnectionState?) {
-                        Log.i(TAG, "onConnectionChange: $newState")
-                        val unused = trySend(PeerConnectionObserverEvent.ConnectionChangeEvent(newState))
-                    }
+          override fun onConnectionChange(newState: PeerConnection.PeerConnectionState?) {
+            Log.i(TAG, "onConnectionChange: $newState")
+            val unused = trySend(PeerConnectionObserverEvent.ConnectionChangeEvent(newState))
+          }
 
-                    override fun onIceConnectionChange(newState: PeerConnection.IceConnectionState?) {
-                        Log.i(TAG, "onIceConnectionChange: $newState")
-                        val unused = trySend(PeerConnectionObserverEvent.IceConnectionChangeEvent(newState))
-                    }
+          override fun onIceConnectionChange(newState: PeerConnection.IceConnectionState?) {
+            Log.i(TAG, "onIceConnectionChange: $newState")
+            val unused = trySend(PeerConnectionObserverEvent.IceConnectionChangeEvent(newState))
+          }
 
-                    override fun onIceConnectionReceivingChange(receiving: Boolean) {
-                        Log.i(TAG, "onIceConnectionReceivingChange: $receiving")
-                        val unused =
-                            trySend(PeerConnectionObserverEvent.IceConnectionReceivingChangeEvent(receiving))
-                    }
+          override fun onIceConnectionReceivingChange(receiving: Boolean) {
+            Log.i(TAG, "onIceConnectionReceivingChange: $receiving")
+            val unused =
+              trySend(PeerConnectionObserverEvent.IceConnectionReceivingChangeEvent(receiving))
+          }
 
-                    override fun onIceGatheringChange(newState: PeerConnection.IceGatheringState?) {
-                        Log.i(TAG, "onIceGatheringChange: $newState")
-                        val unused = trySend(PeerConnectionObserverEvent.IceGatheringChangeEvent(newState))
-                    }
+          override fun onIceGatheringChange(newState: PeerConnection.IceGatheringState?) {
+            Log.i(TAG, "onIceGatheringChange: $newState")
+            val unused = trySend(PeerConnectionObserverEvent.IceGatheringChangeEvent(newState))
+          }
 
-                    override fun onIceCandidate(candidate: IceCandidate?) {
-                        Log.i(TAG, "onIceCandidate: $candidate")
-                        val unused = trySend(PeerConnectionObserverEvent.IceCandidateEvent(candidate))
-                    }
+          override fun onIceCandidate(candidate: IceCandidate?) {
+            Log.i(TAG, "onIceCandidate: $candidate")
+            val unused = trySend(PeerConnectionObserverEvent.IceCandidateEvent(candidate))
+          }
 
-                    override fun onIceCandidatesRemoved(candidates: Array<out IceCandidate>?) {
-                        Log.i(TAG, "onIceCandidatesRemoved: ${candidates?.size}")
-                        val unused = trySend(PeerConnectionObserverEvent.IceCandidatesRemovedEvent(candidates))
-                    }
+          override fun onIceCandidatesRemoved(candidates: Array<out IceCandidate>?) {
+            Log.i(TAG, "onIceCandidatesRemoved: ${candidates?.size}")
+            val unused = trySend(PeerConnectionObserverEvent.IceCandidatesRemovedEvent(candidates))
+          }
 
-                    override fun onAddStream(stream: MediaStream?) {
-                        Log.i(TAG, "onAddStream: $stream")
-                        val unused = trySend(PeerConnectionObserverEvent.AddStreamEvent(stream))
-                    }
+          override fun onAddStream(stream: MediaStream?) {
+            Log.i(TAG, "onAddStream: $stream")
+            val unused = trySend(PeerConnectionObserverEvent.AddStreamEvent(stream))
+          }
 
-                    override fun onRemoveStream(stream: MediaStream?) {
-                        Log.i(TAG, "onRemoveStream: $stream")
-                        val unused = trySend(PeerConnectionObserverEvent.RemoveStreamEvent(stream))
-                    }
+          override fun onRemoveStream(stream: MediaStream?) {
+            Log.i(TAG, "onRemoveStream: $stream")
+            val unused = trySend(PeerConnectionObserverEvent.RemoveStreamEvent(stream))
+          }
 
-                    override fun onDataChannel(dataChannel: DataChannel?) {
-                        Log.i(TAG, "onDataChannel: $dataChannel")
-                        val unused = trySend(PeerConnectionObserverEvent.DataChannelEvent(dataChannel))
-                    }
+          override fun onDataChannel(dataChannel: DataChannel?) {
+            Log.i(TAG, "onDataChannel: $dataChannel")
+            val unused = trySend(PeerConnectionObserverEvent.DataChannelEvent(dataChannel))
+          }
 
-                    override fun onRenegotiationNeeded() {
-                        Log.i(TAG, "onRenegotiationNeeded")
-                        val unused = trySend(PeerConnectionObserverEvent.RenegotiationNeededEvent)
-                    }
+          override fun onRenegotiationNeeded() {
+            Log.i(TAG, "onRenegotiationNeeded")
+            val unused = trySend(PeerConnectionObserverEvent.RenegotiationNeededEvent)
+          }
 
-                    override fun onAddTrack(receiver: RtpReceiver?, mediaStreams: Array<out MediaStream>?) {
-                        Log.i(TAG, "onAddTrack: receiver=$receiver, mediaStreams=$mediaStreams")
-                        val unused = trySend(PeerConnectionObserverEvent.AddTrackEvent(receiver, mediaStreams))
-                    }
+          override fun onAddTrack(receiver: RtpReceiver?, mediaStreams: Array<out MediaStream>?) {
+            Log.i(TAG, "onAddTrack: receiver=$receiver, mediaStreams=$mediaStreams")
+            val unused = trySend(PeerConnectionObserverEvent.AddTrackEvent(receiver, mediaStreams))
+          }
 
-                    override fun onTrack(transceiver: RtpTransceiver?) {
-                        Log.i(TAG, "onTrack: $transceiver")
-                        val unused = trySend(PeerConnectionObserverEvent.TrackEvent(transceiver))
-                    }
-                },
-            )
-        )
-    callback(peerConnection)
-    // Send the SetupPlayerEvent to indicate that the peer connection is ready for use.
-    val unused = trySend(PeerConnectionObserverEvent.SetupPlayerEvent)
-    awaitClose {}
+          override fun onTrack(transceiver: RtpTransceiver?) {
+            Log.i(TAG, "onTrack: $transceiver")
+            val unused = trySend(PeerConnectionObserverEvent.TrackEvent(transceiver))
+          }
+        },
+      )
+    )
+  callback(peerConnection)
+  // Send the SetupPlayerEvent to indicate that the peer connection is ready for use.
+  val unused = trySend(PeerConnectionObserverEvent.SetupPlayerEvent)
+  awaitClose {}
 }
 
 /** Events from the PeerConnection observer. */
 sealed interface PeerConnectionObserverEvent {
-    data class SignalingChangeEvent(val newState: PeerConnection.SignalingState?) :
-        PeerConnectionObserverEvent
+  data class SignalingChangeEvent(val newState: PeerConnection.SignalingState?) :
+    PeerConnectionObserverEvent
 
-    data class ConnectionChangeEvent(val newState: PeerConnection.PeerConnectionState?) :
-        PeerConnectionObserverEvent
+  data class ConnectionChangeEvent(val newState: PeerConnection.PeerConnectionState?) :
+    PeerConnectionObserverEvent
 
-    data class IceConnectionChangeEvent(val newState: PeerConnection.IceConnectionState?) :
-        PeerConnectionObserverEvent
+  data class IceConnectionChangeEvent(val newState: PeerConnection.IceConnectionState?) :
+    PeerConnectionObserverEvent
 
-    data class IceConnectionReceivingChangeEvent(val receiving: Boolean) :
-        PeerConnectionObserverEvent
+  data class IceConnectionReceivingChangeEvent(val receiving: Boolean) :
+    PeerConnectionObserverEvent
 
-    data class IceGatheringChangeEvent(val newState: PeerConnection.IceGatheringState?) :
-        PeerConnectionObserverEvent
+  data class IceGatheringChangeEvent(val newState: PeerConnection.IceGatheringState?) :
+    PeerConnectionObserverEvent
 
-    data class IceCandidateEvent(val candidate: IceCandidate?) : PeerConnectionObserverEvent
+  data class IceCandidateEvent(val candidate: IceCandidate?) : PeerConnectionObserverEvent
 
-    data class IceCandidatesRemovedEvent(val candidates: Array<out IceCandidate>?) :
-        PeerConnectionObserverEvent
+  data class IceCandidatesRemovedEvent(val candidates: Array<out IceCandidate>?) :
+    PeerConnectionObserverEvent
 
-    data class AddStreamEvent(val stream: MediaStream?) : PeerConnectionObserverEvent
+  data class AddStreamEvent(val stream: MediaStream?) : PeerConnectionObserverEvent
 
-    data class RemoveStreamEvent(val stream: MediaStream?) : PeerConnectionObserverEvent
+  data class RemoveStreamEvent(val stream: MediaStream?) : PeerConnectionObserverEvent
 
-    data class DataChannelEvent(val dataChannel: DataChannel?) : PeerConnectionObserverEvent
+  data class DataChannelEvent(val dataChannel: DataChannel?) : PeerConnectionObserverEvent
 
-    object RenegotiationNeededEvent : PeerConnectionObserverEvent
+  object RenegotiationNeededEvent : PeerConnectionObserverEvent
 
-    object SetupPlayerEvent : PeerConnectionObserverEvent
+  object SetupPlayerEvent : PeerConnectionObserverEvent
 
-    data class AddTrackEvent(val receiver: RtpReceiver?, val mediaStreams: Array<out MediaStream>?) :
-        PeerConnectionObserverEvent
+  data class AddTrackEvent(val receiver: RtpReceiver?, val mediaStreams: Array<out MediaStream>?) :
+    PeerConnectionObserverEvent
 
-    data class TrackEvent(val transceiver: RtpTransceiver?) : PeerConnectionObserverEvent
+  data class TrackEvent(val transceiver: RtpTransceiver?) : PeerConnectionObserverEvent
 }

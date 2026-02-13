@@ -27,6 +27,10 @@ import com.google.home.google.AreaPresenceState
 import com.google.home.google.Assistant
 import com.google.home.google.AssistantBroadcast
 import com.google.home.google.AssistantFulfillment
+import com.google.home.google.CameraAvStreamManagement
+import com.google.home.google.CameraHistory
+import com.google.home.google.Chime
+import com.google.home.google.ChimeThemes
 import com.google.home.google.ExtendedApplicationLauncher
 import com.google.home.google.ExtendedLevelControl
 import com.google.home.google.ExtendedMediaInput
@@ -77,8 +81,8 @@ import dagger.Module
 import dagger.Provides
 import dagger.hilt.InstallIn
 import dagger.hilt.components.SingletonComponent
-import javax.inject.Singleton
 import kotlinx.coroutines.Dispatchers
+import javax.inject.Singleton
 
 /**
  * Hilt module for providing dependencies related to the Google Home APIs.
@@ -87,12 +91,13 @@ import kotlinx.coroutines.Dispatchers
 @InstallIn(SingletonComponent::class)
 object HomeModule {
 
-    /**
-     * Provides a list of supported device types.
-     */
-    @Provides
-    @Singleton
-    fun provideSupportedDeviceTypes(): @JvmSuppressWildcards List<DeviceTypeFactory<out DeviceType>> = listOf(
+  /**
+   * Provides a list of supported device types.
+   */
+  @Provides
+  @Singleton
+  fun provideSupportedDeviceTypes(): @JvmSuppressWildcards List<DeviceTypeFactory<out DeviceType>> =
+    listOf(
       ColorTemperatureLightDevice,
       ContactSensorDevice,
       DimmableLightDevice,
@@ -116,12 +121,12 @@ object HomeModule {
       WindowCoveringDevice,
     )
 
-    /**
-     * Provides a list of supported device traits.
-     */
-    @Provides
-    @Singleton
-    fun provideSupportedTraits(): @JvmSuppressWildcards List<TraitFactory<out Trait>> = listOf(
+  /**
+   * Provides a list of supported device traits.
+   */
+  @Provides
+  @Singleton
+  fun provideSupportedTraits(): @JvmSuppressWildcards List<TraitFactory<out Trait>> = listOf(
       AreaAttendanceState,
       AreaPresenceState,
       Assistant,
@@ -130,6 +135,10 @@ object HomeModule {
       AudioOutput,
       BasicInformation,
       BooleanState,
+      CameraAvStreamManagement,
+      CameraHistory,
+      Chime,
+      ChimeThemes,
       DoorLock,
       ExtendedApplicationLauncher,
       ExtendedLevelControl,
@@ -152,44 +161,44 @@ object HomeModule {
       VoiceStarter,
       WebRtcLiveView,
       WindowCovering,
-    )
+  )
 
-    /**
-     * Provides the [FactoryRegistry] for the Home SDK.
-     *
-     * @param types The list of supported device types.
-     * @param traits The list of supported device traits.
-     */
-    @Provides
-    @Singleton
-    fun provideFactoryRegistry(
-        types: @JvmSuppressWildcards List<DeviceTypeFactory<out DeviceType>>,
-        traits: @JvmSuppressWildcards List<TraitFactory<out Trait>>
-    ): FactoryRegistry = FactoryRegistry(
-        types = types,
-        traits = traits
-    )
+  /**
+   * Provides the [FactoryRegistry] for the Home SDK.
+   *
+   * @param types The list of supported device types.
+   * @param traits The list of supported device traits.
+   */
+  @Provides
+  @Singleton
+  fun provideFactoryRegistry(
+    types: @JvmSuppressWildcards List<DeviceTypeFactory<out DeviceType>>,
+    traits: @JvmSuppressWildcards List<TraitFactory<out Trait>>,
+  ): FactoryRegistry = FactoryRegistry(
+    types = types,
+    traits = traits
+  )
 
-    /**
-     * Provides the [HomeConfig] for the Home SDK.
-     *
-     * @param registry The [FactoryRegistry] for the Home SDK.
-     */
-    @Provides
-    @Singleton
-    fun provideHomeConfig(registry: FactoryRegistry): HomeConfig = HomeConfig(
-        coroutineContext = Dispatchers.IO,
-        factoryRegistry = registry
-    )
+  /**
+   * Provides the [HomeConfig] for the Home SDK.
+   *
+   * @param registry The [FactoryRegistry] for the Home SDK.
+   */
+  @Provides
+  @Singleton
+  fun provideHomeConfig(registry: FactoryRegistry): HomeConfig = HomeConfig(
+    coroutineContext = Dispatchers.IO,
+    factoryRegistry = registry
+  )
 
-    /**
-     * Provides the [HomeClient] instance.
-     *
-     * @param homeClientProvider The provider for obtaining a [HomeClient] instance.
-     */
-    @Provides
-    @Singleton
-    fun provideHomeClient(
-        homeClientProvider: HomeClientProvider
-    ): HomeClient = homeClientProvider.getClient()
+  /**
+   * Provides the [HomeClient] instance.
+   *
+   * @param homeClientProvider The provider for obtaining a [HomeClient] instance.
+   */
+  @Provides
+  @Singleton
+  fun provideHomeClient(
+    homeClientProvider: HomeClientProvider,
+  ): HomeClient = homeClientProvider.getClient()
 }

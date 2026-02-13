@@ -1,4 +1,3 @@
-
 /* Copyright 2025 Google LLC
 
 Licensed under the Apache License, Version 2.0 (the "License");
@@ -23,28 +22,30 @@ import com.google.home.automation.CommandCandidate
 import com.google.home.automation.NodeCandidate
 
 @OptIn(HomeExperimentalApi::class)
-class CandidateViewModel (val candidate: NodeCandidate, val deviceVM: DeviceViewModel) : ViewModel() {
+class CandidateViewModel(val candidate: NodeCandidate, val deviceVM: DeviceViewModel) :
+  ViewModel() {
 
-    enum class CandidateType {
-        CommandCandidate,
-        Unknown
+  enum class CandidateType {
+    CommandCandidate,
+    Unknown
+  }
+
+  var id: String = candidate.entity.id.id
+  var name: String
+  var description: String
+  var type: CandidateType
+
+  init {
+
+    if (candidate is CommandCandidate) {
+      name =
+        deviceVM.name.value + " - " + ActionViewModel.commandMap[candidate.commandDescriptor].toString()
+      description = "CommandCandidate"
+      type = CandidateType.CommandCandidate
+    } else {
+      name = "Unsupported Candidate"
+      description = "-"
+      type = CandidateType.Unknown
     }
-
-    var id : String = candidate.entity.id.id
-    var name : String
-    var description : String
-    var type: CandidateType
-
-    init {
-
-        if (candidate is CommandCandidate) {
-            name = deviceVM.name.value + " - " + ActionViewModel.commandMap[candidate.commandDescriptor].toString()
-            description = "CommandCandidate"
-            type = CandidateType.CommandCandidate
-        } else {
-            name = "Unsupported Candidate"
-            description = "-"
-            type = CandidateType.Unknown
-        }
-    }
+  }
 }

@@ -28,52 +28,52 @@ import kotlinx.coroutines.launch
 @AndroidEntryPoint(ComponentActivity::class)
 class AccountSwitchProxyActivity : Hilt_AccountSwitchProxyActivity() {
 
-    @Inject
-    lateinit var homeClientProvider: HomeClientProvider
+  @Inject
+  lateinit var homeClientProvider: HomeClientProvider
 
-    override fun onCreate(savedInstanceState: Bundle?) {
-        super.onCreate(savedInstanceState)
-        Log.i(TAG, "AccountSwitchProxyActivity: onCreate")
-        lifecycleScope.launch {
-            try {
-                // Wait for the FIRST HomeClient emitted by the factory.
-                // Since this Activity is launched *after* the account switch trigger,
-                // this 'first()' will correspond to the HomeClient for the NEW account.
-                val homeClient = homeClientProvider.getClient()
-                Log.i(TAG,"AccountSwitchProxyActivity: Got new HomeClient. Registering permissions.")
-                // Call the registration function within this Activity's onCreate lifecycle.
-                homeClient.registerActivityResultCallerForPermissions(
-                    this@AccountSwitchProxyActivity
-                )
-                Log.i(TAG,"AccountSwitchProxyActivity: Permissions registered for the new HomeClient.")
-                // Launch MainActivity, clearing the task to ensure a clean state.
-                val intent = Intent(this@AccountSwitchProxyActivity, MainActivity::class.java).apply {
-                    flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TASK
-                    // Optionally pass any necessary data to MainActivity
-                    putExtra(MainActivity.EXTRA_FROM_ACCOUNT_SWITCH, true)
-                }
-                startActivity(intent)
-                finish() // Finish the proxy activity so it's not on the back stack.
-                Log.i(TAG, "AccountSwitchProxyActivity: Launched MainActivity and finishing.")
-            } catch (e: Exception) {
-                Log.e(TAG, "AccountSwitchProxyActivity: Failed to get/register HomeClient", e)
-                Toast.makeText(
-                    this@AccountSwitchProxyActivity,
-                    "Account switch failed: ${e.message}",
-                    Toast.LENGTH_LONG,
-                )
-                    .show()
-                // If an error occurs, still return to MainActivity to avoid a blank screen.
-                val intent = Intent(this@AccountSwitchProxyActivity, MainActivity::class.java).apply {
-                    flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TASK
-                }
-                startActivity(intent)
-                finish()
-            }
+  override fun onCreate(savedInstanceState: Bundle?) {
+    super.onCreate(savedInstanceState)
+    Log.i(TAG, "AccountSwitchProxyActivity: onCreate")
+    lifecycleScope.launch {
+      try {
+        // Wait for the FIRST HomeClient emitted by the factory.
+        // Since this Activity is launched *after* the account switch trigger,
+        // this 'first()' will correspond to the HomeClient for the NEW account.
+        val homeClient = homeClientProvider.getClient()
+        Log.i(TAG, "AccountSwitchProxyActivity: Got new HomeClient. Registering permissions.")
+        // Call the registration function within this Activity's onCreate lifecycle.
+        homeClient.registerActivityResultCallerForPermissions(
+          this@AccountSwitchProxyActivity
+        )
+        Log.i(TAG, "AccountSwitchProxyActivity: Permissions registered for the new HomeClient.")
+        // Launch MainActivity, clearing the task to ensure a clean state.
+        val intent = Intent(this@AccountSwitchProxyActivity, MainActivity::class.java).apply {
+          flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TASK
+          // Optionally pass any necessary data to MainActivity
+          putExtra(MainActivity.EXTRA_FROM_ACCOUNT_SWITCH, true)
         }
+        startActivity(intent)
+        finish() // Finish the proxy activity so it's not on the back stack.
+        Log.i(TAG, "AccountSwitchProxyActivity: Launched MainActivity and finishing.")
+      } catch (e: Exception) {
+        Log.e(TAG, "AccountSwitchProxyActivity: Failed to get/register HomeClient", e)
+        Toast.makeText(
+          this@AccountSwitchProxyActivity,
+          "Account switch failed: ${e.message}",
+          Toast.LENGTH_LONG,
+        )
+          .show()
+        // If an error occurs, still return to MainActivity to avoid a blank screen.
+        val intent = Intent(this@AccountSwitchProxyActivity, MainActivity::class.java).apply {
+          flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TASK
+        }
+        startActivity(intent)
+        finish()
+      }
     }
+  }
 
-    companion object {
-        private const val TAG = "AccountSwitchProxyActivity"
-    }
+  companion object {
+    private const val TAG = "AccountSwitchProxyActivity"
+  }
 }
