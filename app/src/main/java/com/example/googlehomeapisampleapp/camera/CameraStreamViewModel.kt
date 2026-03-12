@@ -75,6 +75,8 @@ open class CameraStreamViewModel @Inject internal constructor(
   private val TOGGLE_WAIT_TIME = 4000L
 
   private var activeJobs = mutableListOf<Job>()
+  private var recordingOffDebounceJob: Job? = null
+  private var recordingOnDebounceJob: Job? = null
   private val deviceDeferred = CompletableDeferred<HomeDevice>()
 
   private val _uiMessage = MutableSharedFlow<String?>()
@@ -92,7 +94,8 @@ open class CameraStreamViewModel @Inject internal constructor(
   private val cameraAvStreamManagementController: StateFlow<CameraAvStreamManagementController?> = _cameraAvStreamManagementController
 
   private val _microphonePermissionGranted = MutableStateFlow(false)
-
+  private val _recordingTruthKnown = MutableStateFlow(false)
+  private var stoppedForBackground = false
 
   fun initialize(microphonePermissionGranted: Boolean) {
     // 1. Check if the permission status has actually changed
@@ -186,8 +189,11 @@ open class CameraStreamViewModel @Inject internal constructor(
     }
   }
 
-  val isToggleRecordingInProgress = MutableStateFlow(false)
-  val isToggleTalkbackInProgress = MutableStateFlow(false)
+  private val _isToggleRecordingInProgress = MutableStateFlow(false)
+  val isToggleRecordingInProgress: StateFlow<Boolean> = _isToggleRecordingInProgress
+
+  private val _isToggleTalkbackInProgress = MutableStateFlow(false)
+  val isToggleTalkbackInProgress: StateFlow<Boolean> = _isToggleTalkbackInProgress
 
   @OptIn(ExperimentalCoroutinesApi::class)
   val isTalkbackEnabled: StateFlow<Boolean> = _liveStreamPlayer
@@ -210,7 +216,7 @@ open class CameraStreamViewModel @Inject internal constructor(
     val controller = _onOffController.value ?: return
 
     viewModelScope.launch {
-      isToggleRecordingInProgress.value = true
+      _isToggleRecordingInProgress.value = true
 
       if (enabled) {
         // Clear any lingering sessions before turning back on
@@ -222,9 +228,7 @@ open class CameraStreamViewModel @Inject internal constructor(
         controller.setRecording(enabled)
 
         if (!enabled) {
-          // If we're turning off, kill the player immediately
-          // so the UI doesn't wait for a timeout
-          stopPlayer()
+          stopPlayer(showReadyOff = true)
         }
 
         // Wait for hardware to confirm it actually changed
@@ -240,7 +244,7 @@ open class CameraStreamViewModel @Inject internal constructor(
         _state.value = READY_ON
       }
 
-      isToggleRecordingInProgress.value = false
+      _isToggleRecordingInProgress.value = false
     }
   }
 
@@ -253,7 +257,7 @@ open class CameraStreamViewModel @Inject internal constructor(
     }
 
     viewModelScope.launch {
-      isToggleTalkbackInProgress.value = true
+      _isToggleTalkbackInProgress.value = true
       try {
         player.toggleTalkback(enabled)
         // Wait for WebRTC hardware to confirm state change
@@ -265,7 +269,7 @@ open class CameraStreamViewModel @Inject internal constructor(
         Log.e(TAG, "Talkback toggle failed: ${e.message}")
         _uiMessage.emit("Microphone error")
       } finally {
-        isToggleTalkbackInProgress.value = false
+        _isToggleTalkbackInProgress.value = false
       }
     }
   }
@@ -303,19 +307,39 @@ open class CameraStreamViewModel @Inject internal constructor(
     if (currentDevice != null && currentDevice.id != device.id) {
       viewModelScope.launch {
         stopPlayer()
-        setupDeviceResources(device, micGranted = true)
+        setupDeviceResources(device, micGranted = _microphonePermissionGranted.value)
       }
       return
     }
-    if (deviceDeferred.isCompleted) return
-    deviceDeferred.complete(device)
-    viewModelScope.launch { setupDeviceResources(device, micGranted = true) }
+    if (!deviceDeferred.isCompleted) {
+      deviceDeferred.complete(device)
+      viewModelScope.launch { setupDeviceResources(device, micGranted = _microphonePermissionGranted.value) }
+      return
+    }
+    viewModelScope.launch {
+      setupDeviceResources(device, micGranted = _microphonePermissionGranted.value)
+    }
   }
 
   private suspend fun setupDeviceResources(device: HomeDevice, micGranted: Boolean): Boolean {
+    stopExternalJob?.cancel()
+    stopExternalJob = null
+    recordingOffDebounceJob?.cancel()
+    recordingOffDebounceJob = null
+    recordingOnDebounceJob?.cancel()
+    recordingOnDebounceJob = null
+
     activeJobs.forEach { it.cancel() }
     activeJobs.clear()
-    stopPlayer()
+    val stalePlayer = _liveStreamPlayer.value
+    if (stalePlayer != null) {
+      _liveStreamPlayer.value = null
+      withContext(NonCancellable) {
+        try { stalePlayer.toggleTalkback(false); stalePlayer.dispose() } catch (e: Exception) {
+          Log.e(TAG, "setupDeviceResources: stale player dispose error: ${e.message}")
+        }
+      }
+    }
 
     // Extract device information
     extractDeviceInfo(device)
@@ -328,9 +352,6 @@ open class CameraStreamViewModel @Inject internal constructor(
     _onOffController.value = controller
     _cameraAvStreamManagementController.value = cameraAvStreamManagementControllerFactory.create(device)
 
-    val isCameraActuallyOn = controller?.isRecording?.first() ?: false
-    Log.d(TAG, "Verified hardware truth: $isCameraActuallyOn")
-
     val player = liveStreamPlayerFactory.createPlayerFromDevice(device, viewModelScope, micGranted)
     _liveStreamPlayer.value = player
 
@@ -341,15 +362,26 @@ open class CameraStreamViewModel @Inject internal constructor(
 
     viewModelScope.launch {
       player?.state?.collect { playerInternalState ->
-        if (playerInternalState.toString().contains("STREAMING", ignoreCase = true)) {
-          val isTalkbackOn = player.isTalkbackEnabled.first()
-          _state.value = if (isTalkbackOn) STREAMING_WITH_TALKBACK else STREAMING_WITHOUT_TALKBACK
+        val stateStr = playerInternalState.toString()
+        when {
+          stateStr.contains("STREAMING", ignoreCase = true) -> {
+            val isTalkbackOn = player.isTalkbackEnabled.first()
+            _state.value = if (isTalkbackOn) STREAMING_WITH_TALKBACK else STREAMING_WITHOUT_TALKBACK
+          }
+          stateStr.contains("ERROR", ignoreCase = true) ||
+                  stateStr.contains("FAILED", ignoreCase = true) ||
+                  stateStr.contains("DISCONNECTED", ignoreCase = true) -> {
+            if (_state.value == STARTING) {
+              _state.value = ERROR
+            }
+          }
         }
       }
     }.also { activeJobs.add(it) }
 
     viewModelScope.launch {
       controller?.isRecording?.collect { rec ->
+        if (!_recordingTruthKnown.value) _recordingTruthKnown.value = true
         handleIsRecordingChange(rec)
       }
     }.also { activeJobs.add(it) }
@@ -409,12 +441,9 @@ open class CameraStreamViewModel @Inject internal constructor(
     Log.d(TAG, "State Machine Eval: $currentState")
     return when (currentState) {
       INITIALIZED -> {
-        if (isToggleRecordingInProgress.value) return currentState
-
-        val hardwareOn = isRecording.value
-        Log.d(TAG, "State Machine Eval: Hardware is $hardwareOn")
-
-        if (hardwareOn) READY_ON else READY_OFF
+        if (_isToggleRecordingInProgress.value) return currentState
+        if (!_recordingTruthKnown.value) return currentState
+        if (isRecording.value) READY_ON else READY_OFF
       }
       READY_ON -> {
         Log.d(TAG, "State Machine: READY_ON -> STARTING")
@@ -437,32 +466,52 @@ open class CameraStreamViewModel @Inject internal constructor(
       if (!isHardwareReady.value) return@launch
 
       if (isRecording) {
-        delay(1500) // Stabilization delay
+        recordingOffDebounceJob?.cancel()
+        recordingOffDebounceJob = null
 
-        if (_liveStreamPlayer.value == null) {
-          val device = deviceDeferred.await()
-          setupDeviceResources(device, micGranted = true)
+        recordingOnDebounceJob?.cancel()
+        recordingOnDebounceJob = viewModelScope.launch {
+          delay(1500)
+          val currentState = _state.value
+          if (currentState == STARTING || currentState == STREAMING_WITHOUT_TALKBACK || currentState == STREAMING_WITH_TALKBACK) {
+            return@launch
+          }
+          if (_liveStreamPlayer.value == null) {
+            val device = deviceDeferred.await()
+            setupDeviceResources(device, micGranted = _microphonePermissionGranted.value)
+          }
+          _state.value = READY_ON
+        }
+      } else {
+        val currentState = _state.value
+        val isStreaming = currentState == STREAMING_WITH_TALKBACK ||
+                currentState == STREAMING_WITHOUT_TALKBACK
+        if (!isStreaming) {
+          return@launch
         }
 
-        _state.value = READY_ON
-      } else {
-        stopPlayer()
+        recordingOffDebounceJob?.cancel()
+        recordingOffDebounceJob = viewModelScope.launch {
+          Log.w(TAG, "debounce: waiting 3s, current state=${_state.value}")
+          // Some hardware is slow to report its final state and can emit a transient
+          // false before settling back to true. Wait 3s then re-check before stopping.
+          delay(3000)
+          val controller = _onOffController.value
+          val stillOff = controller?.isRecording?.first() == false
+          Log.w(TAG, "debounce: stillOff=$stillOff, state=${_state.value}")
+          if (stillOff) stopPlayer(showReadyOff = true)
+        }
       }
     }
   }
-
-  private suspend fun startPlayer(): Boolean {
-    // If the player is currently null, wait a brief moment for setupDeviceResources to finish
-    var player = _liveStreamPlayer.value
+  private fun startPlayer(): Boolean {
+    val player = _liveStreamPlayer.value
     if (player == null) {
       Log.w(TAG, "startPlayer: Player null, attempting emergency setup")
-      val device = deviceDeferred.await()
-      setupDeviceResources(device, micGranted = true)
-      player = _liveStreamPlayer.value
-    }
-
-    if (player == null) {
-      Log.e(TAG, "startPlayer: Still no player instance after wait.")
+      viewModelScope.launch {
+        val device = deviceDeferred.await()
+        setupDeviceResources(device, micGranted = _microphonePermissionGranted.value)
+      }
       return false
     }
 
@@ -471,40 +520,50 @@ open class CameraStreamViewModel @Inject internal constructor(
       player.attachRenderer(it)
     }
 
-    return try {
-      player.start()
-      true
-    } catch (e: Exception) {
-      Log.e(TAG, "startPlayer: Handshake failed: ${e.message}")
-      false
+    // Launch in a tracked job so it gets cancelled cleanly by setupDeviceResources
+    // on the next navigation cycle.
+    val startJob = viewModelScope.launch {
+      try {
+        player.start()
+      } catch (e: Exception) {
+        Log.e(TAG, "startPlayer: Handshake failed: ${e.message}")
+        if (_state.value == STARTING) _state.value = ERROR
+      }
+    }.also { job ->
+      job.invokeOnCompletion { activeJobs.remove(job) }
+    }
+    activeJobs.add(startJob)
+    return true
+  }
+
+  private var stopExternalJob: Job? = null
+
+  fun stopPlayerExternally(isBackground: Boolean = false) {
+    stoppedForBackground = isBackground
+    stopExternalJob = viewModelScope.launch {
+      stopPlayer(showReadyOff = !isBackground)
     }
   }
 
-  fun stopPlayerExternally() {
-    viewModelScope.launch {
-      stopPlayer()
-    }
-  }
-
-  private suspend fun stopPlayer() {
+  private suspend fun stopPlayer(showReadyOff: Boolean = false) {
     val player = _liveStreamPlayer.value ?: return
 
+    // Immediately clear state before entering NonCancellable so that any concurrent
+    // setupDeviceResources call sees a clean slate and can install a new player.
+    _liveStreamPlayer.value = null
+    if (showReadyOff) _state.value = READY_OFF
+    activeJobs.forEach { it.cancel() }
+    activeJobs.clear()
+
+    Log.w(TAG, "stopPlayer: disposing player=$player")
     withContext(NonCancellable) {
       try {
-        Log.i(TAG, "stopPlayer: Killing jobs and disposing player")
-
-        activeJobs.forEach { it.cancel() }
-        activeJobs.clear()
-
         player.toggleTalkback(false)
         player.dispose()
       } catch (e: Exception) {
         Log.e(TAG, "stopPlayer error: ${e.message}")
       } finally {
-        _liveStreamPlayer.value = null
-        surface = null
-        // This lands the UI on "Camera is Off"
-        _state.value = READY_OFF
+        Log.w(TAG, "stopPlayer: player disposed")
       }
     }
   }
@@ -514,15 +573,32 @@ open class CameraStreamViewModel @Inject internal constructor(
     _liveStreamPlayer.value?.attachRenderer(surface)
   }
 
+  // Only detach for true navigation away. During background/foreground cycles Android
+  // destroys and recreates the SurfaceView surface — the player was already disposed on
+  // ON_STOP, so calling detachRenderer here would hit the new player and null its
+  // renderTarget before the video track arrives.
   fun onSurfaceDestroyed() {
-    _liveStreamPlayer.value?.detachRenderer()
+    if (!stoppedForBackground) {
+      _liveStreamPlayer.value?.detachRenderer()
+    }
     this.surface = null
+  }
+
+  // Only restarts the stream if the app was actually backgrounded (ON_STOP).
+  // ON_RESUME after navigation is handled by setDevice(), so no action needed there.
+  fun onAppForegrounded() {
+    if (!stoppedForBackground) return
+    stoppedForBackground = false
+    viewModelScope.launch {
+      Log.i(TAG, "onAppForegrounded: restarting stream after background")
+      val device = deviceDeferred.await()
+      setupDeviceResources(device, micGranted = _microphonePermissionGranted.value)
+    }
   }
 
   fun restartInitialization() {
     Log.i(TAG, "restartInitialization: Manual hard-reset triggered.")
     viewModelScope.launch {
-      stopPlayer()
       val device = deviceDeferred.await()
       // Use the actual permission state from the flow
       setupDeviceResources(device, micGranted = _microphonePermissionGranted.value)
@@ -531,8 +607,22 @@ open class CameraStreamViewModel @Inject internal constructor(
 
   override fun onCleared() {
     Log.i(TAG, "ViewModel onCleared: Releasing all resources")
+    stopExternalJob?.cancel()
+    recordingOffDebounceJob?.cancel()
+    recordingOnDebounceJob?.cancel()
+    activeJobs.forEach { it.cancel() }
+    activeJobs.clear()
+    val player = _liveStreamPlayer.value
+    _liveStreamPlayer.value = null
+    if (player != null) {
+      viewModelScope.launch(NonCancellable) {
+        try { player.toggleTalkback(false); player.dispose() } catch (e: Exception) {
+          Log.e(TAG, "onCleared: player dispose error: ${e.message}")
+        }
+      }
+    }
+    surface = null
     super.onCleared()
-    stopPlayerExternally()
   }
 
   // Expose whether the "Software Enable" attribute exists on this hardware

@@ -65,6 +65,7 @@ import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -74,6 +75,9 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.hilt.lifecycle.viewmodel.compose.hiltViewModel
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.LifecycleEventObserver
+import androidx.lifecycle.compose.LocalLifecycleOwner
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.example.googlehomeapisampleapp.MainActivity
 import com.example.googlehomeapisampleapp.camera.CameraStreamView
@@ -192,21 +196,20 @@ fun DeviceView(homeAppVM: HomeAppViewModel) {
         Surface(modifier = Modifier.fillMaxSize()) {
           key(vm.id) {
             val cameraVm: CameraStreamViewModel = hiltViewModel(key = vm.id.toString())
-            val lifecycleOwner = androidx.lifecycle.compose.LocalLifecycleOwner.current
-
-            // Stop stream when backgrounded to prevent "Ghost Sessions"
+            val lifecycleOwner = LocalLifecycleOwner.current
+            val currentCameraVm by rememberUpdatedState(cameraVm)
             DisposableEffect(lifecycleOwner) {
-              val observer = androidx.lifecycle.LifecycleEventObserver { _, event ->
-                if (event == androidx.lifecycle.Lifecycle.Event.ON_PAUSE ||
-                  event == androidx.lifecycle.Lifecycle.Event.ON_STOP
-                ) {
-                  cameraVm.stopPlayerExternally()
+              val observer = LifecycleEventObserver { _, event ->
+                when (event) {
+                  Lifecycle.Event.ON_STOP -> currentCameraVm.stopPlayerExternally(isBackground = true)
+                  Lifecycle.Event.ON_RESUME -> currentCameraVm.onAppForegrounded()
+                  else -> {}
                 }
               }
               lifecycleOwner.lifecycle.addObserver(observer)
               onDispose {
                 lifecycleOwner.lifecycle.removeObserver(observer)
-                cameraVm.stopPlayerExternally()
+                currentCameraVm.stopPlayerExternally()
               }
             }
 

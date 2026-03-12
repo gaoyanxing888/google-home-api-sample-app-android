@@ -23,6 +23,8 @@ import com.google.home.HomeDevice
 import com.google.home.google.GoogleCameraDevice
 import com.google.home.google.GoogleDoorbellDevice
 import com.google.home.google.WebRtcLiveView
+import com.google.home.matter.standard.PushAvStreamTransport
+import com.google.home.matter.standard.PushAvStreamTransportTrait
 import com.google.home.trait
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
@@ -34,6 +36,7 @@ import kotlinx.coroutines.flow.firstOrNull
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withTimeout
+import kotlinx.coroutines.withTimeoutOrNull
 import java.time.Duration
 import kotlin.math.max
 
@@ -112,13 +115,28 @@ class WebRtcLiveViewTraitSignalingController(
       Log.w(TAG, "Media session ID is null, cannot stop live view session.")
       return
     }
-    val trait = webRtcLiveViewTrait()
-    try {
-      // Stop the live view session. Will throw if the camera is not recording.
-      trait?.stopLiveView(sessionId)
-      Log.i(TAG, "Stopped live view session. $sessionId")
-    } catch (e: Exception) {
-      Log.e(TAG, "Failed to stop live view session.", e)
+    mediaSessionId = null
+    val deviceType = device.getCameraDeviceType()
+    val pushAvStreamTrait = deviceType?.let {
+      withTimeoutOrNull(GET_TRANSPORT_TRAIT_TIMEOUT_MS) {
+        device.type(it).trait(PushAvStreamTransport).firstOrNull()
+      }
+    }
+    val hasActiveConnection = pushAvStreamTrait
+      ?.currentConnections
+      ?.any { it.transportStatus == PushAvStreamTransportTrait.TransportStatusEnum.Active }
+      ?: false
+
+    if (hasActiveConnection) {
+      val trait = webRtcLiveViewTrait()
+      try {
+        trait?.stopLiveView(sessionId)
+        Log.i(TAG, "Stopped live view session. $sessionId")
+      } catch (e: Exception) {
+        Log.e(TAG, "Failed to stop live view session.", e)
+      }
+    } else {
+      Log.w(TAG, "No active transport connection. Skipping stopLiveView for session $sessionId.")
     }
   }
 
@@ -190,6 +208,7 @@ class WebRtcLiveViewTraitSignalingController(
   private companion object {
     const val FETCH_TRAIT_TIMEOUT_SECONDS = 10L
     const val EXTENSION_BUFFER_SECONDS = 5L
+    const val GET_TRANSPORT_TRAIT_TIMEOUT_MS = 2000L
     const val TAG = "WebRtcLiveViewTraitSignalingController"
   }
 }

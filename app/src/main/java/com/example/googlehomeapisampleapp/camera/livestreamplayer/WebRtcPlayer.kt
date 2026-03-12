@@ -148,8 +148,9 @@ class WebRtcPlayer(
   override fun detachRenderer() {
     Log.d(TAG, "detachRenderer")
     remoteVideoTrack?.removeSink(eglRenderer)
+    renderTarget = null
     if (isEglInitialized) {
-      eglRenderer.releaseEglSurface { renderTarget = null }
+      eglRenderer.releaseEglSurface {}
       eglRenderer.release()
       isEglInitialized = false
     }

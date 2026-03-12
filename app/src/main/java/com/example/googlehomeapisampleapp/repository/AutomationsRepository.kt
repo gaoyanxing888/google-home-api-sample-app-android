@@ -25,6 +25,7 @@ import com.google.home.automation.between
 import com.google.home.automation.equals
 import com.google.home.automation.lessThan
 import com.google.home.automation.notEquals
+import com.google.home.google.GoogleTVDevice
 import com.google.home.google.SimplifiedThermostat
 import com.google.home.google.SimplifiedThermostatTrait
 import com.google.home.google.Time
@@ -53,54 +54,68 @@ import com.google.home.matter.standard.ThermostatDevice
 import com.google.home.matter.standard.WindowCovering
 import com.google.home.matter.standard.WindowCoveringDevice
 
-class AutomationsRepository {
+/**
+ * Device capability flags computed in a single pass over the device list.
+ * Used by both [AutomationsRepository] availability checks and the UI layer
+ * to avoid redundant iteration over the device list.
+ */
+data class DeviceCapabilities(
+  val hasEnoughLights: Boolean = false,
+  val hasLightsAndThermostat: Boolean = false,
+  val hasRequiredDevicesForSleep: Boolean = false,
+  val hasWindowCoveringDevices: Boolean = false,
+  val hasRequiredDevicesForLightAndTVPeriodic: Boolean = false,
+)
 
-  fun hasEnoughLights(deviceVMs: List<DeviceViewModel>): Boolean {
-    val onOffLights = getOnOffCapableLights(deviceVMs)
-    return onOffLights.size >= 2
-  }
+/**
+ * Classifies all devices in a single pass and returns the capability flags
+ * needed by every predefined automation.
+ *
+ * Previously, each automation's availability check iterated the device list
+ * independently (some multiple times internally), resulting in O(M × N)
+ * iterations for M automations and N devices. This reduces it to O(N).
+ */
+fun computeDeviceCapabilities(deviceVMs: List<DeviceViewModel>): DeviceCapabilities {
+  var lightCount = 0
+  var hasThermostat = false
+  var hasDoorLock = false
+  var hasSpeaker = false
+  var hasFan = false
+  var hasPlug = false
+  var hasTemperatureSensor = false
+  var hasWindowCovering = false
+  var hasOccupancySensor = false
+  var hasGoogleTV = false
 
-  /**
-   * Check if we have the required devices for the "Speaker and Fan" automation
-   */
-  fun hasRequiredDevicesForSleepAutomation(deviceVMs: List<DeviceViewModel>): Boolean {
-    val hasSpeaker = deviceVMs.any { it.type.value.factory == SpeakerDevice }
-    val hasFan = deviceVMs.any { it.type.value.factory == FanDevice }
-    val hasPlug = deviceVMs.any { it.type.value.factory == OnOffPluginUnitDevice }
-    return hasSpeaker && hasFan && hasPlug
-  }
-
-  /**
-   * Check if we have the required devices for the Window Covering automation
-   * Requires: 1 temperature sensor (or thermostat) and 1 window covering
-   */
-  fun hasWindowCoveringAutomationDevices(deviceVMs: List<DeviceViewModel>): Boolean {
-    var hasTemperatureDevice = false
-    var hasWindowCovering = false
-
-    for (vm in deviceVMs) {
-      when (vm.type.value.factory) {
-        TemperatureSensorDevice, ThermostatDevice -> hasTemperatureDevice = true
-        WindowCoveringDevice -> hasWindowCovering = true
+  for (vm in deviceVMs) {
+    when (vm.type.value.factory) {
+      OnOffLightDevice, DimmableLightDevice,
+      ColorTemperatureLightDevice, ExtendedColorLightDevice -> lightCount++
+      ThermostatDevice -> {
+        hasThermostat = true
+        hasTemperatureSensor = true // Thermostat also serves as temperature source
       }
-      if (hasTemperatureDevice && hasWindowCovering) return true
+      DoorLockDevice -> hasDoorLock = true
+      SpeakerDevice -> hasSpeaker = true
+      FanDevice -> hasFan = true
+      OnOffPluginUnitDevice -> hasPlug = true
+      TemperatureSensorDevice -> hasTemperatureSensor = true
+      WindowCoveringDevice -> hasWindowCovering = true
+      OccupancySensorDevice -> hasOccupancySensor = true
+      GoogleTVDevice -> hasGoogleTV = true
     }
-    return false
   }
 
-  /**
-   * Check if we have the required devices for the Light and TV Periodic automation
-   * Requires: at least 1 light, 1 occupancy sensor, and 1 Google TV
-   */
-  fun hasRequiredDevicesForLightAndTVPeriodicAutomation(deviceVMs: List<DeviceViewModel>): Boolean {
-    val hasLights = getOnOffCapableLights(deviceVMs).isNotEmpty()
-    val hasOccupancySensor = deviceVMs.any { it.type.value.factory == OccupancySensorDevice }
-    val hasGoogleTV = deviceVMs.any {
-      it.type.value.factory == com.google.home.google.GoogleTVDevice
-    }
-    return hasLights && hasOccupancySensor && hasGoogleTV
-  }
+  return DeviceCapabilities(
+    hasEnoughLights = lightCount >= 2,
+    hasLightsAndThermostat = lightCount >= 1 && hasThermostat && hasDoorLock,
+    hasRequiredDevicesForSleep = hasSpeaker && hasFan && hasPlug,
+    hasWindowCoveringDevices = hasTemperatureSensor && hasWindowCovering,
+    hasRequiredDevicesForLightAndTVPeriodic = lightCount >= 1 && hasGoogleTV && hasOccupancySensor,
+  )
+}
 
+class AutomationsRepository {
   /**
    * Creates an OnOff light automation draft
    * This should only be called when the user actually selects the predefined automation
@@ -230,6 +245,39 @@ class AutomationsRepository {
     )
   }
 
+  /**
+   * Creates a light and thermostat automation draft.
+   * Turn on lights and set thermostat to Auto mode when door is unlocked.
+   */
+  fun createLightAndThermostatAutomationDraft(deviceVMs: List<DeviceViewModel>): DraftViewModel? {
+    var doorLock: DeviceViewModel? = null
+    var thermostat: DeviceViewModel? = null
+    val lights = mutableListOf<DeviceViewModel>()
+
+    for (vm in deviceVMs) {
+      val factory = vm.type.value.factory
+      when (factory) {
+        DoorLockDevice -> if (doorLock == null) doorLock = vm
+        ThermostatDevice -> if (thermostat == null) thermostat = vm
+        OnOffLightDevice, DimmableLightDevice,
+        ColorTemperatureLightDevice, ExtendedColorLightDevice,
+          -> lights.add(vm)
+      }
+    }
+
+    if (doorLock == null || thermostat == null || lights.isEmpty()) {
+      return null
+    }
+
+    val presetDraft = createLightAndThermostatDraftAutomation(doorLock, thermostat, lights)
+
+    return DraftViewModel(
+      candidateVM = null,
+      presetDraft = presetDraft,
+      isLocked = true,
+      automationType = DraftViewModel.AutomationType.LIGHT_AND_THERMOSTAT
+    )
+  }
   private fun createOnOffDraftAutomation(
     deviceA: DeviceViewModel,
     deviceB: DeviceViewModel,
@@ -386,66 +434,6 @@ class AutomationsRepository {
         }
       }
     }
-  }
-
-  /**
-   * Checks if there are enough devices to create the light and thermostat automation
-   * Requires: 1 door lock, 1 thermostat, and at least 1 light
-   */
-  fun hasLightsAndThermostat(deviceVMs: List<DeviceViewModel>): Boolean {
-    var hasDoorLock = false
-    var hasThermostat = false
-    var hasLights = false
-
-    for (vm in deviceVMs) {
-      val factory = vm.type.value.factory
-      when (factory) {
-        DoorLockDevice -> hasDoorLock = true
-        ThermostatDevice -> hasThermostat = true
-        OnOffLightDevice, DimmableLightDevice,
-        ColorTemperatureLightDevice, ExtendedColorLightDevice,
-          -> hasLights = true
-      }
-      if (hasDoorLock && hasThermostat && hasLights) {
-        return true
-      }
-    }
-    return false
-  }
-
-  /**
-   * Creates a light and thermostat automation draft
-   * Turn on lights and set thermostat to Auto mode when door is unlocked
-   */
-  fun createLightAndThermostatAutomationDraft(deviceVMs: List<DeviceViewModel>): DraftViewModel? {
-    var doorLock: DeviceViewModel? = null
-    var thermostat: DeviceViewModel? = null
-    val lights = mutableListOf<DeviceViewModel>()
-
-    // Single iteration to find all required devices
-    for (vm in deviceVMs) {
-      val factory = vm.type.value.factory
-      when (factory) {
-        DoorLockDevice -> if (doorLock == null) doorLock = vm
-        ThermostatDevice -> if (thermostat == null) thermostat = vm
-        OnOffLightDevice, DimmableLightDevice,
-        ColorTemperatureLightDevice, ExtendedColorLightDevice,
-          -> lights.add(vm)
-      }
-    }
-
-    if (doorLock == null || thermostat == null || lights.isEmpty()) {
-      return null
-    }
-
-    val presetDraft = createLightAndThermostatDraftAutomation(doorLock, thermostat, lights)
-
-    return DraftViewModel(
-      candidateVM = null,
-      presetDraft = presetDraft,
-      isLocked = true,
-      automationType = DraftViewModel.AutomationType.LIGHT_AND_THERMOSTAT
-    )
   }
 
   private fun createLightAndThermostatDraftAutomation(

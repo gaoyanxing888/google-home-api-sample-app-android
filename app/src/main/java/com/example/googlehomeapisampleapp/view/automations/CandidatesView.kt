@@ -23,6 +23,7 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.collectAsState
+import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.res.stringResource
@@ -30,10 +31,11 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.example.googlehomeapisampleapp.R
-import com.example.googlehomeapisampleapp.repository.AutomationsRepository
 import com.example.googlehomeapisampleapp.viewmodel.HomeAppViewModel
 import com.example.googlehomeapisampleapp.viewmodel.automations.CandidateViewModel
 import com.example.googlehomeapisampleapp.viewmodel.automations.DraftViewModel
+import com.example.googlehomeapisampleapp.repository.DeviceCapabilities
+import com.example.googlehomeapisampleapp.repository.computeDeviceCapabilities
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.launch
 
@@ -83,26 +85,9 @@ fun CandidateListComponent(homeAppVM: HomeAppViewModel) {
 
   BlankListItem(homeAppVM)
   val structureVM = homeAppVM.selectedStructureVM.collectAsState().value
-  val repository = AutomationsRepository()
-  val availableAutomations = structureVM?.let {
-    predefinedAutomations.filter { automation ->
-      val hasEnoughLights = repository.hasEnoughLights(it.deviceVMs.value)
-      val hasLightsAndThermostat = repository.hasLightsAndThermostat(it.deviceVMs.value)
-      val hasRequiredDevicesForSleep =
-        repository.hasRequiredDevicesForSleepAutomation(it.deviceVMs.value)
-      val hasWindowCoveringDevices =
-        repository.hasWindowCoveringAutomationDevices(it.deviceVMs.value)
-      val hasRequiredDevicesForLightAndTVPeriodic =
-        repository.hasRequiredDevicesForLightAndTVPeriodicAutomation(it.deviceVMs.value)
-      automation.isAvailable(
-        hasEnoughLights,
-        hasLightsAndThermostat,
-        hasRequiredDevicesForSleep,
-        hasWindowCoveringDevices,
-        hasRequiredDevicesForLightAndTVPeriodic
-      )
-    }
-  } ?: emptyList()
+  val deviceVMs = structureVM?.deviceVMs?.value ?: emptyList()
+  val capabilities = remember(deviceVMs) { computeDeviceCapabilities(deviceVMs) }
+  val availableAutomations = predefinedAutomations.filter { it.isAvailable(capabilities) }
 
   if (availableAutomations.isNotEmpty()) {
     PredefinedListSection(homeAppVM, availableAutomations)
@@ -143,13 +128,7 @@ private data class PredefinedAutomation(
   val title: String,
   val description: String,
   val automationType: DraftViewModel.AutomationType,
-  val isAvailable: (
-    hasEnoughLights: Boolean,
-    hasLightsAndThermostat: Boolean,
-    hasRequiredDevicesForSleep: Boolean,
-    hasWindowCoveringDevices: Boolean,
-    hasRequiredDevicesForLightAndTVPeriodic: Boolean
-  ) -> Boolean,
+  val isAvailable: (DeviceCapabilities) -> Boolean,
   val onClick: suspend (CoroutineScope, HomeAppViewModel) -> Unit,
 )
 
@@ -158,7 +137,7 @@ private val predefinedAutomations = listOf(
     title = "On/Off Automation",
     description = "Simple automation that turns off a light when another light is turned off.",
     automationType = DraftViewModel.AutomationType.ON_OFF,
-    isAvailable = { hasEnoughLights, _, _, _, _ -> hasEnoughLights }
+    isAvailable = { it.hasEnoughLights }
   ) { scope, vm ->
     scope.launch { vm.showPredefinedOnOffDraft() }
   },
@@ -166,7 +145,7 @@ private val predefinedAutomations = listOf(
     title = "Speaker and Fan Automation",
     description = "Say 'Hey Google, I can't sleep' to play ocean sounds, turn on fan and outlet.",
     automationType = DraftViewModel.AutomationType.SPEAKER_AND_FAN,
-    isAvailable = { _, _, hasSleepDevices, _, _ -> hasSleepDevices }
+    isAvailable = { it.hasRequiredDevicesForSleep }
   ) { scope, vm ->
     scope.launch { vm.showPredefinedSpeakerAndFanDraft() }
   },
@@ -174,7 +153,7 @@ private val predefinedAutomations = listOf(
     title = "Lights/Thermostat Automation",
     description = "Turn on lights and set thermostat to Auto mode when door is unlocked.",
     automationType = DraftViewModel.AutomationType.LIGHT_AND_THERMOSTAT,
-    isAvailable = { _, hasLightsAndThermostat, _, _, _ -> hasLightsAndThermostat }
+    isAvailable = { it.hasLightsAndThermostat }
   ) { scope, vm ->
     scope.launch { vm.showPredefinedLightAndThermostatDraft() }
   },
@@ -182,7 +161,7 @@ private val predefinedAutomations = listOf(
     title = "Window Covering Automation",
     description = "Close blinds when temperature < 15°C (59°F) AND it's dark outside.",
     automationType = DraftViewModel.AutomationType.WINDOW_COVERING,
-    isAvailable = { _, _, _, hasWindowCoveringDevices, _ -> hasWindowCoveringDevices }
+    isAvailable = { it.hasWindowCoveringDevices }
   ) { scope, vm ->
     scope.launch { vm.showPredefinedWindowCoveringDraft() }
   },
@@ -190,7 +169,7 @@ private val predefinedAutomations = listOf(
     title = "Light and TV Periodic Automation",
     description = "Turn on lights and TV when motion detected to deter intruders.",
     automationType = DraftViewModel.AutomationType.LIGHT_AND_TV_PERIODIC,
-    isAvailable = { _, _, _, _, hasLightAndTVPeriodic -> hasLightAndTVPeriodic }
+    isAvailable = { it.hasRequiredDevicesForLightAndTVPeriodic }
   ) { scope, vm ->
     scope.launch { vm.showPredefinedLightAndTVPeriodicDraft() }
   }
