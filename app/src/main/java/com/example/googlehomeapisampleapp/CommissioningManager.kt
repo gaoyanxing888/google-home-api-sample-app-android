@@ -37,12 +37,12 @@ import com.google.android.gms.home.matter.commissioning.CommissioningWindow
 import com.google.android.gms.home.matter.commissioning.ShareDeviceRequest
 import com.google.android.gms.home.matter.common.DeviceDescriptor
 import com.google.android.gms.home.matter.common.Discriminator
-import kotlin.random.Random
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.tasks.await
+import kotlin.random.Random
 
 private const val TAG = "CommissioningManager"
 
@@ -214,7 +214,7 @@ class CommissioningManager(
         }
 
         FabricType.THIRD_PARTY_FABRIC -> {
-          builder.setStoreToGoogleFabric(false)
+          builder.setStoreToGoogleFabric(true)
           builder.setCommissioningService(
             ComponentName(context, ThirdPartyCommissioningService::class.java)
           )

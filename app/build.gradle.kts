@@ -4,7 +4,7 @@ plugins {
   alias(libs.plugins.android.application)
   alias(libs.plugins.kotlin.android)
   alias(libs.plugins.kotlin.compose)
-  id("com.google.devtools.ksp")
+  alias(libs.plugins.ksp)
   id("com.google.dagger.hilt.android")
   alias(libs.plugins.errorprone)
 }
@@ -17,8 +17,8 @@ android {
     applicationId = "com.example.googlehomeapisampleapp"
     minSdk = 29
     targetSdk = 36
-    versionCode = 38
-    versionName = "1.7.0"
+    versionCode = 39
+    versionName = "1.7.1"
 
     // Store your GCP project web client ID in local.properties and access it via project properties.
     // If local.properties doesn't exist in your app root folder, just create it
@@ -50,12 +50,12 @@ android {
     }
   }
   compileOptions {
-    sourceCompatibility = JavaVersion.VERSION_1_8
-    targetCompatibility = JavaVersion.VERSION_1_8
+    sourceCompatibility = JavaVersion.VERSION_17
+    targetCompatibility = JavaVersion.VERSION_17
   }
   kotlin {
     compilerOptions {
-      jvmTarget.set(org.jetbrains.kotlin.gradle.dsl.JvmTarget.JVM_1_8)
+      jvmTarget.set(org.jetbrains.kotlin.gradle.dsl.JvmTarget.JVM_17)
     }
   }
   buildFeatures {
