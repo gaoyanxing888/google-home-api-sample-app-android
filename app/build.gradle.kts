@@ -17,8 +17,8 @@ android {
     applicationId = "com.example.googlehomeapisampleapp"
     minSdk = 29
     targetSdk = 36
-    versionCode = 39
-    versionName = "1.7.1"
+    versionCode = 40
+    versionName = "1.8.0"
 
     // Store your GCP project web client ID in local.properties and access it via project properties.
     // If local.properties doesn't exist in your app root folder, just create it
@@ -106,4 +106,8 @@ dependencies {
   implementation(libs.androidx.paging.compose)
   implementation(libs.coil.compose)
   implementation(libs.coil.network.okhttp)
+  implementation(libs.androidx.media3.exoplayer)
+  implementation(libs.androidx.media3.exoplayer.dash)
+  implementation(libs.androidx.media3.ui)
+  implementation(libs.androidx.media3.exoplayer.hls)
 }

@@ -14,20 +14,13 @@ limitations under the License.
 */
 package com.example.googlehomeapisampleapp.history
 
-import android.util.Log
 import com.google.home.HistoryItem
 import com.google.home.annotation.HomeExperimentalApi
 import com.google.home.google.CameraHistory
 import com.google.home.google.CameraHistoryTrait
 import java.time.Instant
-import java.time.LocalDate
-
-sealed interface HistoryEventUi {
-    val id: String
-    data class DateSeparatorModel(val date: LocalDate) : HistoryEventUi {
-        override val id: String = date.toString()
-    }
-}
+import java.time.ZoneId
+import java.time.format.DateTimeFormatter
 
 sealed interface HistoryUiDataModel : HistoryEventUi {
     val eventId: String
@@ -52,15 +45,46 @@ sealed interface HistoryUiDataModel : HistoryEventUi {
     ) : HistoryUiDataModel
 }
 
+/**
+ * Shared subtitle formatting used in both HistoryView and HistoryVideoPlayerScreen.
+ * Centralising here avoids duplicating the "\u2022" separator pattern across composables.
+ */
+val HistoryUiDataModel.displaySubtitle: String
+    get() = "${timestamp.formatToTime()} \u2022 $entityName"
+
+/**
+ * UI representation of media URLs associated with a camera history event.
+ *
+ * Maps from [CameraHistoryTrait.MediaUrl] SDK type. Video URLs (DASH, MP4, HLS)
+ * require an active Google Home Premium subscription; they will be empty otherwise.
+ */
 data class MediaUrl(
     val previewUrl: String = "",
     val thumbnailUrl: String = "",
+    val dashManifestUrl: String = "",
+    val mp4DownloadUrl: String = "",
+    val hlsMasterPlaylistUrl: String = "",
 ) {
+    /**
+     * Returns true if any playable video format (MP5, HLS, or MPEG-DASH) is available.
+     * Checking all three ensures hasVideo accurately reflects
+     */
+    val hasVideo: Boolean
+        get() = mp4DownloadUrl.isNotBlank() ||
+                dashManifestUrl.isNotBlank() ||
+                hlsMasterPlaylistUrl.isNotBlank()
+
+    /** Returns true if an MP4 is available for download. */
+    val canDownload: Boolean get() = mp4DownloadUrl.isNotBlank()
+
     companion object {
         fun fromCameraHistoryMediaUrl(mediaUrl: CameraHistoryTrait.MediaUrl?): MediaUrl {
             return MediaUrl(
                 previewUrl = mediaUrl?.preview_url ?: "",
-                thumbnailUrl = mediaUrl?.thumbnail_url ?: ""
+                thumbnailUrl = mediaUrl?.thumbnail_url ?: "",
+                dashManifestUrl = mediaUrl?.dash_manifest_url ?: "",
+                mp4DownloadUrl = mediaUrl?.mp4_download_url ?: "",
+                hlsMasterPlaylistUrl = mediaUrl?.hls_master_playlist_url ?: "",
             )
         }
     }
@@ -81,26 +105,21 @@ enum class HistoryUiEventType {
     }
 }
 
+private val EVENT_TYPE_PRIORITY = listOf(
+    CameraHistoryTrait.EventType.Doorbell,
+    CameraHistoryTrait.EventType.Person,
+    CameraHistoryTrait.EventType.Motion,
+    CameraHistoryTrait.EventType.Vehicle,
+    CameraHistoryTrait.EventType.Animal,
+)
+
 @OptIn(HomeExperimentalApi::class)
 fun HistoryItem.toUiDataModel(): HistoryUiDataModel {
     val event = this.event
     return when (event) {
         is CameraHistory.HistoryItemEvent -> {
-            val rawTracks = event.eventTracks?.flatMap { it.eventTypes }?.map { it.name } ?: emptyList()
-            val sdkEventName = event.eventName ?: "Unnamed SDK Event"
-
-            Log.i("CAMERA_DEBUG", "Camera Event: $sdkEventName | Device: $entityName")
-            Log.d("CAMERA_DEBUG", "   -> Raw SDK Tracks: $rawTracks")
-
-            val priorityList = listOf(
-                CameraHistoryTrait.EventType.Doorbell,
-                CameraHistoryTrait.EventType.Person,
-                CameraHistoryTrait.EventType.Motion,
-                CameraHistoryTrait.EventType.Vehicle,
-                CameraHistoryTrait.EventType.Animal
-            )
             val eventTypes = event.eventTracks?.flatMap { it.eventTypes }?.toSet()
-            val detected = priorityList.firstOrNull { eventTypes?.contains(it) == true }
+            val detected = EVENT_TYPE_PRIORITY.firstOrNull { eventTypes?.contains(it) == true }
                 ?: CameraHistoryTrait.EventType.Unknown
 
             HistoryUiDataModel.CameraEvent(
@@ -116,7 +135,11 @@ fun HistoryItem.toUiDataModel(): HistoryUiDataModel {
             eventId = id.id,
             timestamp = timestamp,
             entityName = entityName ?: "Event",
-            eventName = event.eventName
+            eventName = event.eventName,
         )
     }
 }
+
+/** Formats an [Instant] to a human-readable time string. */
+internal fun Instant.formatToTime(): String =
+    DateTimeFormatter.ofPattern("h:mm a").withZone(ZoneId.systemDefault()).format(this)

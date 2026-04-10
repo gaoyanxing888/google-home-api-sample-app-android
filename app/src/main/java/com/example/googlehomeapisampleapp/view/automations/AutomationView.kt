@@ -35,8 +35,11 @@ import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.text.font.FontStyle
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.example.googlehomeapisampleapp.MainActivity
@@ -62,6 +65,7 @@ fun AutomationView(homeAppVM: HomeAppViewModel) {
   val automationActions: List<Action> = automation.actions.collectAsState().value
   val automationIsActive: Boolean = automation.isActive.collectAsState().value
   val automationIsValid: Boolean = automation.isValid.collectAsState().value
+  val isManuallyExecutable: Boolean = automation.isManuallyExecutable.collectAsState().value
 
   BackHandler {
     scope.launch { homeAppVM.selectedAutomationVM.emit(null) }
@@ -210,8 +214,19 @@ fun AutomationView(homeAppVM: HomeAppViewModel) {
         .padding(16.dp)
         .align(Alignment.BottomCenter), horizontalAlignment = Alignment.CenterHorizontally
     ) {
+      if (!isManuallyExecutable) {
+        Text(
+          text = stringResource(R.string.automation_not_executable_message),
+          color = Color.Gray,
+          fontSize = 12.sp,
+          fontStyle = FontStyle.Italic,
+          textAlign = TextAlign.Center,
+          modifier = Modifier.padding(bottom = 8.dp)
+        )
+      }
+
       Button(
-        enabled = automationIsValid,
+        enabled = automationIsValid && isManuallyExecutable,
         onClick = {
           scope.launch {
             try {

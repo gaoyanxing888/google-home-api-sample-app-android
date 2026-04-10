@@ -16,6 +16,7 @@ package com.example.googlehomeapisampleapp.history
 
 import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -34,6 +35,7 @@ import androidx.compose.material.icons.outlined.History
 import androidx.compose.material.icons.outlined.Image
 import androidx.compose.material.icons.outlined.MotionPhotosOn
 import androidx.compose.material.icons.outlined.Person
+import androidx.compose.material.icons.outlined.Pets
 import androidx.compose.material.icons.outlined.Videocam
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
@@ -61,9 +63,7 @@ import androidx.paging.compose.collectAsLazyPagingItems
 import androidx.paging.compose.itemKey
 import coil3.compose.AsyncImage
 import com.example.googlehomeapisampleapp.viewmodel.HomeAppViewModel
-import java.time.Instant
 import java.time.LocalDate
-import java.time.ZoneId
 import java.time.format.DateTimeFormatter
 
 @Composable
@@ -71,37 +71,43 @@ fun HistoryView(viewModel: HomeAppViewModel) {
     val historyItems = viewModel.historyFlow.collectAsLazyPagingItems()
     val selectedDevice by viewModel.selectedHistoryDeviceVM.collectAsStateWithLifecycle()
 
-    // Handle Swipe Back / System Back button to return to previous screen
     BackHandler(enabled = true) {
         viewModel.clearHistorySelection()
     }
 
-    // Set page background to White
     Surface(modifier = Modifier.fillMaxSize(), color = Color.White) {
         Column {
             if (selectedDevice != null) {
                 Row(
                     modifier = Modifier
                         .fillMaxWidth()
-                        .padding(horizontal = 16.dp, vertical = 20.dp), // Standardized spacing
-                    verticalAlignment = Alignment.CenterVertically
+                        .padding(horizontal = 16.dp, vertical = 20.dp),
+                    verticalAlignment = Alignment.CenterVertically,
                 ) {
                     Text(
-                        // Spacing stays the same, "History" is appended
-                        text = "${selectedDevice?.name?.collectAsState()?.value}: History",
+                        text = (selectedDevice?.name?.collectAsState()?.value
+                            ?.takeIf { it.isNotBlank() } ?: "Unknown Device") + ": History",
                         style = MaterialTheme.typography.titleLarge,
-                        color = Color.Black, // Text changed to black
+                        color = Color.Black,
                         modifier = Modifier.weight(1f)
                     )
                 }
             }
-            HistoryList(events = historyItems)
+
+            // Event list
+            HistoryList(
+                events = historyItems,
+                onEventSelected = { event -> viewModel.openVideoPlayer(event) },
+            )
         }
     }
 }
 
 @Composable
-fun HistoryList(events: LazyPagingItems<HistoryEventUi>) {
+fun HistoryList(
+    events: LazyPagingItems<HistoryEventUi>,
+    onEventSelected: (HistoryUiDataModel.CameraEvent) -> Unit,
+) {
     val errorPainter = rememberVectorPainter(Icons.Outlined.Image)
     val today = LocalDate.now()
 
@@ -141,7 +147,20 @@ fun HistoryList(events: LazyPagingItems<HistoryEventUi>) {
             ) { index ->
                 when (val item = events[index]) {
                     is HistoryEventUi.DateSeparatorModel -> DateSeparatorRow(item.date, today)
-                    is HistoryUiDataModel -> HistoryItemRow(item, errorPainter)
+                    is HistoryUiDataModel.CameraEvent -> {
+                        HistoryItemRow(
+                            uiModel = item,
+                            errorPainter = errorPainter,
+                            onClick = { onEventSelected(item) },
+                        )
+                    }
+                    is HistoryUiDataModel.DefaultEvent -> {
+                        HistoryItemRow(
+                            uiModel = item,
+                            errorPainter = errorPainter,
+                            onClick = {},
+                        )
+                    }
                     null -> {}
                 }
             }
@@ -150,14 +169,20 @@ fun HistoryList(events: LazyPagingItems<HistoryEventUi>) {
 }
 
 @Composable
-fun HistoryItemRow(uiModel: HistoryUiDataModel, errorPainter: Painter) {
+fun HistoryItemRow(
+    uiModel: HistoryUiDataModel,
+    errorPainter: Painter,
+    onClick: () -> Unit,
+) {
     val (title, icon) = getEventMetadata(uiModel)
 
     Card(
-        modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 6.dp),
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(horizontal = 16.dp, vertical = 6.dp)
+            .clickable(enabled = uiModel is HistoryUiDataModel.CameraEvent) { onClick() },
         shape = RoundedCornerShape(12.dp),
-        // Light card style
-        colors = CardDefaults.cardColors(containerColor = Color(0xFFF5F5F5))
+        colors = CardDefaults.cardColors(containerColor = Color(0xFFF5F5F5)),
     ) {
         Row(
             modifier = Modifier.padding(12.dp),
@@ -173,7 +198,7 @@ fun HistoryItemRow(uiModel: HistoryUiDataModel, errorPainter: Painter) {
                     fontWeight = FontWeight.SemiBold
                 )
                 Text(
-                    text = "${uiModel.timestamp.formatToTime()} • ${uiModel.entityName}",
+                    text = uiModel.displaySubtitle,
                     color = Color.Gray,
                     style = MaterialTheme.typography.bodySmall
                 )
@@ -182,7 +207,7 @@ fun HistoryItemRow(uiModel: HistoryUiDataModel, errorPainter: Painter) {
             if (uiModel is HistoryUiDataModel.CameraEvent) {
                 AsyncImage(
                     model = uiModel.mediaUrl.thumbnailUrl,
-                    contentDescription = null,
+                    contentDescription = "Event thumbnail",
                     modifier = Modifier
                         .size(width = 80.dp, height = 60.dp)
                         .clip(RoundedCornerShape(8.dp))
@@ -198,28 +223,19 @@ fun HistoryItemRow(uiModel: HistoryUiDataModel, errorPainter: Painter) {
 private fun getEventMetadata(model: HistoryUiDataModel): Pair<String, ImageVector> {
     return when (model) {
         is HistoryUiDataModel.CameraEvent -> {
-            val title = when (model.eventType) {
-                HistoryUiEventType.Person -> "Person"
-                HistoryUiEventType.Motion -> "Motion"
-                HistoryUiEventType.Doorbell -> "Doorbell"
-                HistoryUiEventType.Vehicle -> "Vehicle"
-                else -> "Unknown Camera Event"
+            val (title, icon) = when (model.eventType) {
+                HistoryUiEventType.Person -> "Person" to Icons.Outlined.Person
+                HistoryUiEventType.Motion -> "Motion" to Icons.Outlined.MotionPhotosOn
+                HistoryUiEventType.Doorbell -> "Doorbell" to Icons.Outlined.Doorbell
+                HistoryUiEventType.Vehicle -> "Vehicle" to Icons.Outlined.DirectionsCar
+                HistoryUiEventType.Animal -> "Animal" to Icons.Outlined.Pets
+                HistoryUiEventType.Unknown -> "Camera Event" to Icons.Outlined.Videocam
             }
-            title to getIconForType(model.eventType)
+            title to icon
         }
         is HistoryUiDataModel.DefaultEvent -> {
             (model.eventName ?: "Activity") to Icons.Outlined.History
         }
-    }
-}
-
-private fun getIconForType(type: HistoryUiEventType): ImageVector {
-    return when (type) {
-        HistoryUiEventType.Person -> Icons.Outlined.Person
-        HistoryUiEventType.Doorbell -> Icons.Outlined.Doorbell
-        HistoryUiEventType.Vehicle -> Icons.Outlined.DirectionsCar
-        HistoryUiEventType.Motion -> Icons.Outlined.MotionPhotosOn
-        else -> Icons.Outlined.Videocam
     }
 }
 
@@ -234,6 +250,3 @@ fun DateSeparatorRow(date: LocalDate, today: LocalDate) {
         fontWeight = FontWeight.Bold
     )
 }
-
-private fun Instant.formatToTime() =
-    DateTimeFormatter.ofPattern("h:mm a").withZone(ZoneId.systemDefault()).format(this)

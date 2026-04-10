@@ -16,14 +16,20 @@ limitations under the License.
 package com.example.googlehomeapisampleapp.viewmodel.automations
 
 import androidx.lifecycle.ViewModel
+import androidx.lifecycle.viewModelScope
 import com.google.home.automation.Action
 import com.google.home.automation.Automation
+import com.google.home.automation.ManualStarter
 import com.google.home.automation.Node
 import com.google.home.automation.ParallelFlow
 import com.google.home.automation.SelectFlow
 import com.google.home.automation.SequentialFlow
 import com.google.home.automation.Starter
 import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.SharingStarted
+import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.map
+import kotlinx.coroutines.flow.stateIn
 
 class AutomationViewModel(var automation: Automation) : ViewModel() {
 
@@ -34,11 +40,22 @@ class AutomationViewModel(var automation: Automation) : ViewModel() {
   val isValid: MutableStateFlow<Boolean> = MutableStateFlow(automation.isValid)
   val nodes: MutableStateFlow<List<Node>>
 
+  val isManuallyExecutable: StateFlow<Boolean>
   val starters: MutableStateFlow<List<Starter>>
   val actions: MutableStateFlow<List<Action>>
 
   init {
     nodes = MutableStateFlow(retrieveNodes(automation.automationGraph!!))
+
+    isManuallyExecutable =
+      nodes
+        .map { nodes -> nodes.any { it is ManualStarter } }
+        .stateIn(
+          scope = viewModelScope,
+          started = SharingStarted.WhileSubscribed(5000L),
+          initialValue = nodes.value.any { it is ManualStarter }
+        )
+
     // Initialize starters and actions by parsing nodes:
     starters = MutableStateFlow(retrieveStarters(nodes.value))
     actions = MutableStateFlow(retrieveActions(nodes.value))

@@ -59,6 +59,7 @@
   <string name="automation_text_unknown">[Unknown Device]</string>
   <string name="automation_text_is_valid">isValid</string>
   <string name="automation_text_is_active">isActive</string>
+  <string name="automation_not_executable_message">This automation cannot be executed manually because it lacks a manual trigger.</string>
   <string name="automation_button_execute">Manually Execute</string>
   <string name="automation_button_delete">Delete Automation</string>
 
