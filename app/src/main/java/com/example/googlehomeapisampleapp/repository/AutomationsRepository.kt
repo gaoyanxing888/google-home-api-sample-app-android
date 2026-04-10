@@ -436,6 +436,10 @@ class AutomationsRepository {
     }
   }
 
+  /**
+   * This automation intentionally lacks a manualStarter() and as such cannot be manually triggered.
+   * Using a device type `lock` as a starter requires pin-verification which cannot be simulated.
+   **/
   private fun createLightAndThermostatDraftAutomation(
     doorLock: DeviceViewModel,
     thermostat: DeviceViewModel,

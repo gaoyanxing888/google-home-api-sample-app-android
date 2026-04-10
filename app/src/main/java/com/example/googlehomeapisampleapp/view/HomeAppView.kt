@@ -65,6 +65,7 @@ import com.example.googlehomeapisampleapp.MainActivity
 import com.example.googlehomeapisampleapp.commissioning.OtaUpdateScreen
 import com.example.googlehomeapisampleapp.commissioning.qrcodescanner.MatterQrCodeScanner
 import com.example.googlehomeapisampleapp.history.HistoryView
+import com.example.googlehomeapisampleapp.history.HistoryVideoPlayerScreen
 import com.example.googlehomeapisampleapp.ui.theme.GoogleHomeAPISampleAppTheme
 import com.example.googlehomeapisampleapp.view.automations.ActionView
 import com.example.googlehomeapisampleapp.view.automations.AutomationView
@@ -164,6 +165,7 @@ fun HomeAppView(homeAppVM: HomeAppViewModel) {
   }
 
   val selectedHistoryDeviceVM by homeAppVM.selectedHistoryDeviceVM.collectAsStateWithLifecycle()
+  val selectedVideoEvent by homeAppVM.selectedVideoEvent.collectAsStateWithLifecycle()
 
   // Apply theme on the top-level view:
   GoogleHomeAPISampleAppTheme {
@@ -211,8 +213,15 @@ fun HomeAppView(homeAppVM: HomeAppViewModel) {
         if (!isSignedIn) {
           WelcomeView(homeAppVM)
         }
+        // Video player screen — shown when a history event is tapped
+        selectedVideoEvent?.let { event ->
+          HistoryVideoPlayerScreen(
+            event = event,
+            onBack = { homeAppVM.closeVideoPlayer() },
+          )
+          return@Column
+        }
         if (selectedHistoryDeviceVM != null) {
-          Log.i("NAV_DEBUG", "DRAWING: HistoryView Contextual")
           HistoryView(viewModel = homeAppVM)
           return@Column
         }
@@ -354,7 +363,7 @@ fun HomeAppView(homeAppVM: HomeAppViewModel) {
                 value = selectedRoom.value?.name?.value ?: "Select a room",
                 onValueChange = {},
                 trailingIcon = { Icon(Icons.Filled.ArrowDropDown, contentDescription = null) },
-                modifier = Modifier.fillMaxWidth()
+                modifier = Modifier.fillMaxWidth().menuAnchor()
               )
               ExposedDropdownMenu(
                 expanded = expanded.value,

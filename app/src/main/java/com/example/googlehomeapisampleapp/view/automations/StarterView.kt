@@ -485,9 +485,7 @@ fun StarterView(homeAppVM: HomeAppViewModel) {
               starterVM.valueFanMode.emit(
                 starterValueFanMode.value ?: FanControlTrait.FanModeEnum.Off
               )
-              val updatedList = draftVM.starterVMs.value.toMutableList()
-              updatedList.add(starterVM)
-              draftVM.starterVMs.emit(updatedList)
+              // Close the starter editor view
               draftVM.selectedStarterVM.emit(null)
             }
           })

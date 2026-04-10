@@ -123,6 +123,8 @@ class HomeAppViewModel(val homeApp: HomeApp) : ViewModel() {
 
   private val _selectedHistoryDeviceVM = MutableStateFlow<DeviceViewModel?>(null)
   val selectedHistoryDeviceVM = _selectedHistoryDeviceVM.asStateFlow()
+  private val _selectedVideoEvent = MutableStateFlow<HistoryUiDataModel.CameraEvent?>(null)
+  val selectedVideoEvent = _selectedVideoEvent.asStateFlow()
 
   @OptIn(ExperimentalCoroutinesApi::class, HomeExperimentalApi::class)
   val historyFlow: Flow<PagingData<HistoryEventUi>> = combine(
@@ -130,17 +132,28 @@ class HomeAppViewModel(val homeApp: HomeApp) : ViewModel() {
     selectedHistoryDeviceVM.map { it?.device?.id?.id }.distinctUntilChanged()
   ) { structureId, deviceId -> structureId to deviceId }
     .flatMapLatest { (structureId, deviceId) ->
+      // 1. Get the Structure object from the list of available structures
       val structure = structureVMs.value.firstOrNull { it.id == structureId }?.structure
         ?: return@flatMapLatest kotlinx.coroutines.flow.flowOf(PagingData.empty())
 
       Pager(PagingConfig(pageSize = 20)) {
-        val builder = HomeHistoryPagingSource.Builder(structure.getHistoryManager())
-        deviceId?.let { builder.addHistoryFilters(com.google.home.HistoryFilter.id(it)) }
+        // 2. Obtain historyManager from the specific structure
+        val historyManager = structure.getHistoryManager()
+        val builder = HomeHistoryPagingSource.Builder(historyManager)
+
+        // 3. Apply the device filter to stop global history fetching
+        deviceId?.let {
+          builder.addHistoryFilters(com.google.home.HistoryFilter.id(it))
+        }
         builder.build()
       }.flow.map { pagingData ->
-        pagingData.map { it.toUiDataModel() as HistoryEventUi }
+        pagingData.map { historyItem ->
+          // 4. Map raw SDK HistoryItem to your app's UI model
+          historyItem.toUiDataModel()
+        }
           .insertSeparators { before, after ->
-            shouldAddDateSeparator(before as? HistoryUiDataModel, after as? HistoryUiDataModel)?.let {
+            // 5. Add date separators (Today, Yesterday, etc.)
+            shouldAddDateSeparator(before, after)?.let {
               HistoryEventUi.DateSeparatorModel(it)
             }
           }
@@ -575,6 +588,16 @@ class HomeAppViewModel(val homeApp: HomeApp) : ViewModel() {
 
   fun clearHistorySelection() {
     _selectedHistoryDeviceVM.value = null
+  }
+
+  /** Opens the video player screen for the given camera history event. */
+  fun openVideoPlayer(event: HistoryUiDataModel.CameraEvent) {
+    _selectedVideoEvent.value = event
+  }
+
+  /** Closes the video player screen and returns to the history list. */
+  fun closeVideoPlayer() {
+    _selectedVideoEvent.value = null
   }
 
   private fun shouldAddDateSeparator(before: HistoryUiDataModel?, after: HistoryUiDataModel?): java.time.LocalDate? {
