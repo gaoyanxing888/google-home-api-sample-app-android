@@ -18,6 +18,9 @@ package com.example.googlehomeapisampleapp.camera
 import com.google.home.google.ZoneManagementTrait
 import com.google.home.matter.serialization.OptionalValue
 
+/** Maximum number of custom activity zones supported per camera device. */
+const val MAX_ACTIVITY_ZONES = 4
+
 /**
  * UI data model representing a single activity zone on a camera device.
  *
@@ -57,7 +60,7 @@ data class ActivityZone(
             ),
             maxX = maxVertex?.x?.toInt() ?: 0,
             maxY = maxVertex?.y?.toInt() ?: 0,
-            modifiable = struct.zoneSource == ZoneManagementTrait.ZoneSourceEnum.User,
+            modifiable = struct.zoneSource == ZoneManagementTrait.ZoneSourceEnum.User && struct.zoneId.toInt() != 0,
         )
     }
 }

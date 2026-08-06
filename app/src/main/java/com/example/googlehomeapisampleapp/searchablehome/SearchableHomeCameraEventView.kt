@@ -50,6 +50,8 @@ import java.time.ZoneId
 import java.time.format.DateTimeFormatter
 import java.time.format.FormatStyle
 
+import coil3.ImageLoader
+
 private const val TAG = "SearchableHomeCameraEventView"
 private const val REQUESTED_IMAGE_WIDTH_PX = 96
 
@@ -58,7 +60,11 @@ private const val REQUESTED_IMAGE_WIDTH_PX = 96
  * camera name, timestamp, and a thumbnail of the event.
  */
 @Composable
-fun SearchableHomeCameraEventView(event: CameraEventData, modifier: Modifier = Modifier) {
+fun SearchableHomeCameraEventView(
+  event: CameraEventData,
+  modifier: Modifier = Modifier,
+  imageLoader: ImageLoader? = null,
+) {
   val errorPainter = rememberVectorPainter(Icons.Outlined.Image)
   val formatter = remember {
     DateTimeFormatter.ofLocalizedDateTime(FormatStyle.SHORT).withZone(ZoneId.systemDefault())
@@ -94,6 +100,7 @@ fun SearchableHomeCameraEventView(event: CameraEventData, modifier: Modifier = M
       previewUrl = event.previewUrl,
       thumbnailUrl = event.thumbnailUrl,
       errorPainter = errorPainter,
+      imageLoader = imageLoader,
     )
   }
 }
@@ -104,7 +111,12 @@ fun SearchableHomeCameraEventView(event: CameraEventData, modifier: Modifier = M
  * it falls back to the [thumbnailUrl]. If both fail, it displays the [errorPainter] placeholder.
  */
 @Composable
-private fun CameraThumbnail(previewUrl: String?, thumbnailUrl: String?, errorPainter: Painter) {
+private fun CameraThumbnail(
+  previewUrl: String?,
+  thumbnailUrl: String?,
+  errorPainter: Painter,
+  imageLoader: ImageLoader? = null,
+) {
   val previewUri =
     previewUrl?.toUriWithQueryParameters(
       mapOf("format" to "webp", "width" to REQUESTED_IMAGE_WIDTH_PX.toString())
@@ -120,7 +132,7 @@ private fun CameraThumbnail(previewUrl: String?, thumbnailUrl: String?, errorPai
     contentDescription = stringResource(R.string.camera_thumbnail_description),
     contentScale = ContentScale.Crop,
     modifier = Modifier.clip(RoundedCornerShape(8.dp)).size(64.dp),
-    imageLoader = LocalContext.current.imageLoader,
+    imageLoader = imageLoader ?: LocalContext.current.imageLoader,
     error = errorPainter,
     fallback = errorPainter,
     onError = {

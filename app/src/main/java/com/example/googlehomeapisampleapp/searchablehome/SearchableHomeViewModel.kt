@@ -19,6 +19,7 @@ import android.util.Log
 import androidx.lifecycle.SavedStateHandle
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
+import com.example.googlehomeapisampleapp.history.CameraMediaAuth
 import com.google.home.HomeClient
 import com.google.home.HomeDevice
 import com.google.home.google.SearchableHome
@@ -77,7 +78,8 @@ data class CameraEventData(
 @HiltViewModel
 class SearchableHomeViewModel @Inject constructor(
   private val homeClient: HomeClient,
-  private val savedStateHandle: SavedStateHandle
+  private val savedStateHandle: SavedStateHandle,
+  val cameraMediaAuth: CameraMediaAuth,
 ) : ViewModel() {
 
   companion object {

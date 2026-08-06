@@ -22,6 +22,7 @@ import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
@@ -67,7 +68,11 @@ import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.launch
 
 @Composable
-fun AutomationsAccountButton(homeAppVM: HomeAppViewModel) {
+fun AutomationsAccountButton(
+  homeAppVM: HomeAppViewModel,
+  onNavigateToUserManagement: () -> Unit = {},
+  onNavigateToPresenceSettings: () -> Unit = {}
+) {
   val context = LocalContext.current
   var expanded by remember { mutableStateOf(false) }
   /**
@@ -119,12 +124,30 @@ fun AutomationsAccountButton(homeAppVM: HomeAppViewModel) {
           homeAppVM.openCloudLinkingSheet()
         },
       )
+      DropdownMenuItem(
+        text = { Text("User Management") },
+        onClick = {
+          expanded = false
+          onNavigateToUserManagement()
+        }
+      )
+      DropdownMenuItem(
+        text = { Text("Presence Settings") },
+        onClick = {
+          expanded = false
+          onNavigateToPresenceSettings()
+        }
+      )
     }
   }
 }
 
 @Composable
-fun AutomationsView(homeAppVM: HomeAppViewModel) {
+fun AutomationsView(
+  homeAppVM: HomeAppViewModel,
+  onNavigateToUserManagement: () -> Unit = {},
+  onNavigateToPresenceSettings: () -> Unit = {}
+) {
   val scope: CoroutineScope = rememberCoroutineScope()
   var expanded: Boolean by remember { mutableStateOf(false) }
 
@@ -134,8 +157,8 @@ fun AutomationsView(homeAppVM: HomeAppViewModel) {
   val structureName: String =
     selectedStructureVM?.name ?: stringResource(R.string.automations_text_loading)
 
-  Column {
-    AutomationsTopBar("", listOf { AutomationsAccountButton(homeAppVM) })
+  Column(modifier = Modifier.fillMaxHeight()) {
+    AutomationsTopBar("", listOf { AutomationsAccountButton(homeAppVM, onNavigateToUserManagement, onNavigateToPresenceSettings) })
 
     Box(modifier = Modifier.weight(1f)) {
       Column {
@@ -155,8 +178,9 @@ fun AutomationsView(homeAppVM: HomeAppViewModel) {
           Box {
             DropdownMenu(expanded = expanded, onDismissRequest = { expanded = false }) {
               for (structure in structureVMs) {
+                val presence by structure.presenceState.collectAsState()
                 DropdownMenuItem(
-                  text = { Text(structure.name) },
+                  text = { Text("${structure.name} ($presence)") },
                   onClick = {
                     homeAppVM.setSelectedStructure(structure)
                     expanded = false

@@ -31,6 +31,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.example.googlehomeapisampleapp.R
+import com.example.googlehomeapisampleapp.view.automations.SuggestListSection
 import com.example.googlehomeapisampleapp.viewmodel.HomeAppViewModel
 import com.example.googlehomeapisampleapp.viewmodel.automations.CandidateViewModel
 import com.example.googlehomeapisampleapp.viewmodel.automations.DraftViewModel
@@ -88,6 +89,8 @@ fun CandidateListComponent(homeAppVM: HomeAppViewModel) {
   val deviceVMs = structureVM?.deviceVMs?.value ?: emptyList()
   val capabilities = remember(deviceVMs) { computeDeviceCapabilities(deviceVMs) }
   val availableAutomations = predefinedAutomations.filter { it.isAvailable(capabilities) }
+
+  SuggestListSection(homeAppVM = homeAppVM)
 
   if (availableAutomations.isNotEmpty()) {
     PredefinedListSection(homeAppVM, availableAutomations)

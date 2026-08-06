@@ -56,6 +56,8 @@ import com.google.android.libraries.identity.googleid.GetGoogleIdOption
 import com.google.android.libraries.identity.googleid.GoogleIdTokenCredential
 import com.google.home.HomeBriefsPage
 import com.google.home.Structure
+import com.google.home.featureConsentStatus
+import com.google.home.ConsentStatus
 import com.google.home.annotation.HomeExperimentalApi
 import com.google.home.automation.CommandCandidate
 import com.google.home.automation.DraftAutomation
@@ -63,6 +65,14 @@ import com.google.home.automation.NodeCandidate
 import com.google.home.automation.UnknownDeviceType
 import com.google.home.getHistoryManager
 import com.google.home.getHomeBriefsManager
+import com.google.home.userPresenceSettings
+import com.google.home.deleteHistory
+import com.google.home.google.AreaAttendanceState
+import com.google.home.google.AreaAttendanceStateTrait
+import com.google.home.google.AreaPresenceState
+import com.google.home.google.AreaPresenceStateTrait
+import com.google.home.google.UserPresenceSettings
+import com.google.home.google.UserPresenceSettingsTrait
 import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExperimentalCoroutinesApi
@@ -74,13 +84,20 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.catch
+import kotlinx.coroutines.flow.flowOf
+import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.filterNotNull
 import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.flow.firstOrNull
 import kotlinx.coroutines.flow.flatMapLatest
 import kotlinx.coroutines.flow.map
+import kotlinx.coroutines.flow.onStart
 import kotlinx.coroutines.flow.receiveAsFlow
+import kotlinx.coroutines.flow.retryWhen
+import kotlinx.coroutines.flow.scan
 import kotlinx.coroutines.flow.shareIn
 import kotlinx.coroutines.launch
 
@@ -98,6 +115,8 @@ class HomeAppViewModel(
 
   companion object {
     const val TAG = "HomeAppViewModel"
+    private const val FEATURE_PRESENCE_SENSING_NAME = "FEATURE_PRESENCE_SENSING"
+    private const val FEATURE_PRESENCE_SENSING_ID = 3L
   }
 
   // Container tracking the active navigation tab:
@@ -128,6 +147,177 @@ class HomeAppViewModel(
   // Containers tracking the active object being edited:
   val selectedStructureVM: StateFlow<StructureViewModel?> =
     currentStructureRepository.selectedStructureVM
+
+  private val _presenceRefreshTrigger = MutableSharedFlow<Unit>(extraBufferCapacity = 1)
+  fun refreshPresenceSettings() {
+    _presenceRefreshTrigger.tryEmit(Unit)
+  }
+
+  private val _resolvedConsentStatus = MutableStateFlow<ConsentStatus>(ConsentStatus.UNSPECIFIED)
+
+  @OptIn(ExperimentalCoroutinesApi::class, HomeExperimentalApi::class)
+  val selectedStructureFeatureConsentStatus: StateFlow<ConsentStatus> =
+    combine(
+      selectedStructureVM.filterNotNull(),
+      _presenceRefreshTrigger.onStart { emit(Unit) }
+    ) { structureVM, _ -> structureVM }
+      .flatMapLatest { structureVM ->
+        structureVM.structure.featureConsentStatus()
+          .map { consentMap ->
+            val entry = consentMap.entries.find {
+              it.key.id.toLong() == FEATURE_PRESENCE_SENSING_ID ||
+              it.key.name == FEATURE_PRESENCE_SENSING_NAME
+            }
+            entry?.value ?: ConsentStatus.UNSPECIFIED
+          }
+          .catch { e ->
+            Log.w("HomeAppViewModel", "featureConsentStatus flow error: ${e.message}")
+            emit(ConsentStatus.UNSPECIFIED)
+          }
+          .scan(_resolvedConsentStatus.value) { previousStatus, rawStatus ->
+            val resolvedStatus = when (rawStatus) {
+              ConsentStatus.CONSENTED, ConsentStatus.NOT_CONSENTED -> rawStatus
+              ConsentStatus.UNSPECIFIED -> {
+                if (previousStatus != ConsentStatus.UNSPECIFIED) {
+                  previousStatus
+                } else {
+                  ConsentStatus.UNSPECIFIED
+                }
+              }
+            }
+            _resolvedConsentStatus.value = resolvedStatus
+            resolvedStatus
+          }
+      }
+      .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), ConsentStatus.UNSPECIFIED)
+
+  @OptIn(ExperimentalCoroutinesApi::class, HomeExperimentalApi::class)
+  val selectedStructureUserPresenceSettings: StateFlow<UserPresenceSettings?> =
+    combine(
+      selectedStructureVM,
+      selectedStructureFeatureConsentStatus
+    ) { structureVM, consentStatus ->
+      Pair(structureVM, consentStatus)
+    }
+      .flatMapLatest { (structureVM, consentStatus) ->
+        if (structureVM != null && consentStatus == ConsentStatus.CONSENTED) {
+          structureVM.structure.userPresenceSettings()
+            .catch<UserPresenceSettings?> { e ->
+              Log.w("HomeAppViewModel", "UserPresenceSettings flow error: ${e.message}")
+              emit(null)
+            }
+        } else {
+          flowOf(null)
+        }
+      }
+      .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), null)
+
+  @OptIn(ExperimentalCoroutinesApi::class)
+  val selectedStructureAreaPresenceState: StateFlow<AreaPresenceState?> =
+    combine(
+      selectedStructureVM,
+      selectedStructureFeatureConsentStatus
+    ) { structureVM, consentStatus ->
+      Pair(structureVM, consentStatus)
+    }
+      .flatMapLatest { (structureVM, consentStatus) ->
+        if (structureVM != null && consentStatus == ConsentStatus.CONSENTED) {
+          structureVM.structure.trait(AreaPresenceState)
+            .catch<AreaPresenceState?> { e ->
+              Log.w("HomeAppViewModel", "AreaPresenceState flow error: ${e.message}")
+              emit(null)
+            }
+        } else {
+          flowOf(null)
+        }
+      }
+      .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), null)
+
+  @OptIn(ExperimentalCoroutinesApi::class)
+  val selectedStructureAreaAttendanceState: StateFlow<AreaAttendanceState?> =
+    combine(
+      selectedStructureVM,
+      selectedStructureFeatureConsentStatus
+    ) { structureVM, consentStatus ->
+      Pair(structureVM, consentStatus)
+    }
+      .flatMapLatest { (structureVM, consentStatus) ->
+        if (structureVM != null && consentStatus == ConsentStatus.CONSENTED) {
+          structureVM.structure.trait(AreaAttendanceState)
+            .catch<AreaAttendanceState?> { e ->
+              Log.w("HomeAppViewModel", "AreaAttendanceState flow error: ${e.message}")
+              emit(null)
+            }
+        } else {
+          flowOf(null)
+        }
+      }
+      .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), null)
+
+  fun setPresenceOptIn(optIn: Boolean) {
+    val structure = selectedStructureVM.value?.structure ?: return
+    viewModelScope.launch {
+      try {
+        val consentStatus = selectedStructureFeatureConsentStatus.value
+        if (optIn) {
+          if (consentStatus != ConsentStatus.CONSENTED) {
+            try {
+              val result = homeApp.homeClient.updateFeatureConsent(
+                listOf(com.google.home.FeatureConsentType(FEATURE_PRESENCE_SENSING_NAME, FEATURE_PRESENCE_SENSING_ID.toInt())),
+                structure.id.id
+              )
+              refreshPresenceSettings()
+              if (!result.granted) {
+                return@launch
+              }
+            } catch (e: Exception) {
+              Log.w("HomeAppViewModel", "Feature consent request failed: ${e.message}")
+              refreshPresenceSettings()
+              return@launch
+            }
+          }
+        } else {
+          if (consentStatus == ConsentStatus.CONSENTED) {
+            try {
+              val result = homeApp.homeClient.updateFeatureConsent(
+                listOf(com.google.home.FeatureConsentType(FEATURE_PRESENCE_SENSING_NAME, FEATURE_PRESENCE_SENSING_ID.toInt())),
+                structure.id.id
+              )
+              refreshPresenceSettings()
+            } catch (e: Exception) {
+              Log.w("HomeAppViewModel", "Feature consent OFF request failed: ${e.message}")
+            }
+          }
+        }
+
+        val settings = structure.userPresenceSettings().firstOrNull()
+        if (settings != null) {
+          if (settings.presenceOptIn != optIn) {
+            settings.update {
+              setPresenceOptIn(optIn)
+            }
+          }
+        } else {
+          Log.w("HomeAppViewModel", "userPresenceSettings returned null")
+        }
+        refreshPresenceSettings()
+      } catch (e: Exception) {
+        Log.e("HomeAppViewModel", "Error setting presence opt-in: ${e.message}", e)
+      }
+    }
+  }
+
+  fun deleteSelectedStructureHistory() {
+    val structure = selectedStructureVM.value?.structure ?: return
+    viewModelScope.launch {
+      try {
+        structure.deleteHistory(emptyList())
+        Log.d("HomeAppViewModel", "Successfully deleted structure history")
+      } catch (e: Exception) {
+        Log.e("HomeAppViewModel", "Error deleting structure history: ${e.message}", e)
+      }
+    }
+  }
 
   fun setSelectedStructure(structure: StructureViewModel?) {
     currentStructureRepository.setSelectedStructure(structure)
@@ -376,9 +566,30 @@ class HomeAppViewModel(
    * Shows the OTA information screen for a camera device. Called after a camera device is
    * successfully commissioned.
    */
-  fun showOtaScreen() {
+  fun showOtaScreen(deviceId: String? = null) {
     viewModelScope.launch {
       try {
+        var deviceFound = false
+        if (deviceId != null) {
+          val structure = selectedStructureVM.value
+          val matchedDevice = structure?.roomVMs?.value?.flatMap { it.deviceVMs.value }?.find { it.id == deviceId }
+            ?: structure?.deviceVMsWithoutRooms?.value?.find { it.id == deviceId }
+          if (matchedDevice != null) {
+            Log.d(TAG, "Selected commissioned device for OTA screen: ${matchedDevice.id}")
+            selectedDeviceVM.emit(matchedDevice)
+            deviceFound = true
+          }
+        }
+        if (!deviceFound) {
+          val cameraVM = selectedStructureVM.value?.deviceVMsWithoutRooms?.value?.find { it.typeName.value == "Camera" || it.name.value.contains("Camera", ignoreCase = true) }
+            ?: selectedStructureVM.value?.roomVMs?.value?.flatMap { it.deviceVMs.value }?.find { it.typeName.value == "Camera" || it.name.value.contains("Camera", ignoreCase = true) }
+          if (cameraVM != null) {
+            Log.d(TAG, "Selected fallback camera device for OTA screen: ${cameraVM.id}")
+            selectedDeviceVM.emit(cameraVM)
+          } else {
+            selectedDeviceVM.emit(null)
+          }
+        }
         _showOtaScreen.emit(true)
       } catch (e: Exception) {
         Log.e(TAG, "Error emitting OTA screen state", e)

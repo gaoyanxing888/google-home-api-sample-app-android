@@ -71,7 +71,7 @@ class CommissioningManager(
    * Callback invoked when a camera device is successfully commissioned.
    * This triggers the OTA information screen.
    */
-  var onCameraCommissioned: (() -> Unit)? = null
+  var onCameraCommissioned: ((String) -> Unit)? = null
 
   /**
    * Tracks whether we're expecting a camera device based on the fabric type
@@ -171,7 +171,7 @@ class CommissioningManager(
 
           // Only show OTA screen if commissioned through GOOGLE_CAMERA flow
           if (expectingCameraDevice) {
-            onCameraCommissioned?.invoke()
+            onCameraCommissioned?.invoke(deviceId)
           }
         }
       }

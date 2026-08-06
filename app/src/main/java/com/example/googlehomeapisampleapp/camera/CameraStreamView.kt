@@ -38,6 +38,7 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.selection.toggleable
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
@@ -60,9 +61,11 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Switch
+import androidx.compose.material3.SwitchDefaults
 import androidx.compose.material3.Text
 import androidx.compose.material3.rememberModalBottomSheetState
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -74,8 +77,11 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.testTag
+import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.viewinterop.AndroidView
+import com.example.googlehomeapisampleapp.R
 import com.example.googlehomeapisampleapp.RuntimePermissionsManager
 import com.example.googlehomeapisampleapp.camera.timeline.CameraTimeline
 import com.example.googlehomeapisampleapp.camera.timeline.CameraTimelineUiState
@@ -106,6 +112,10 @@ fun CameraStreamView(
   zoneUpdateStatus: ZoneUpdateStatus = ZoneUpdateStatus.Idle,
   onAddActivityZone: () -> Unit = {},
   onDeleteActivityZone: (Int) -> Unit = {},
+  onNavigateToFamiliarFace: () -> Unit = {},
+  videoAnalysisControllers: List<VideoAnalysisController> = emptyList(),
+  isToggleAiFeaturesInProgress: Boolean = false,
+  onSetAiFeaturesEnabled: (VideoAnalysisController, Boolean) -> Unit = { _, _ -> },
   onTurnCameraOn: (Boolean) -> Unit = {},
   onSetTalkback: (Boolean) -> Unit = {},
   onSetAudioRecording: (Boolean) -> Unit = {},
@@ -259,6 +269,23 @@ fun CameraStreamView(
           }
         )
 
+        // --- FAMILIAR FACE ---
+        // Entry point to manage familiar face library and consent
+        ListItem(
+          headlineContent = { Text("Familiar Face") },
+          supportingContent = { Text("Manage face library and consent settings") },
+          trailingContent = {
+            Icon(Icons.Default.ChevronRight,
+            contentDescription = "Navigate to Familiar Face settings")
+          },
+          modifier = Modifier.clickable {
+            // Dismiss the bottom sheet before navigating
+            showBottomSheet = false
+            // Trigger the navigation callback
+            onNavigateToFamiliarFace()
+            }
+        )
+
         // RECORDING MODE
         HorizontalDivider(modifier = Modifier.padding(vertical = 8.dp))
         Text(
@@ -353,17 +380,20 @@ fun CameraStreamView(
           }
         }
 
-        // There is currently a limit of 4 activity zones
-        val canAddZone = modifiableZones.size < 4 &&
+        // Limit of MAX_ACTIVITY_ZONES activity zones
+        val canAddZone = modifiableZones.size < MAX_ACTIVITY_ZONES &&
                 zoneUpdateStatus != ZoneUpdateStatus.InProgress
 
         ListItem(
           headlineContent = {
             Text(
-              text = if (modifiableZones.size >= 4) "Maximum 4 zones reached" else "Add Activity Zone",
+              text = "Add a zone",
               color = if (canAddZone) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.outline
             )
           },
+          supportingContent = if (modifiableZones.size >= MAX_ACTIVITY_ZONES) {
+            { Text("Four zones max.", color = MaterialTheme.colorScheme.error) }
+          } else null,
           modifier = Modifier.clickable(enabled = canAddZone) { onAddActivityZone() },
           leadingContent = {
             Icon(
@@ -373,6 +403,68 @@ fun CameraStreamView(
             )
           }
         )
+
+        // --- GEMINI AI FEATURES ---
+        if (videoAnalysisControllers.isNotEmpty()) {
+          // Visual divider for camera AI Perception settings section
+          HorizontalDivider(modifier = Modifier.padding(vertical = 8.dp))
+          Text(
+            stringResource(R.string.ai_perception_title),
+            style = MaterialTheme.typography.labelLarge,
+            color = MaterialTheme.colorScheme.primary,
+            modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp)
+          )
+
+          videoAnalysisControllers.forEach { controller ->
+            val isAiFeaturesSupported by controller.isAiFeaturesSupported.collectAsState(false)
+            val isAiFeaturesEnabled by controller.isAiFeaturesEnabled.collectAsState(false)
+            val isToggleInteractive = isAiFeaturesSupported && !isToggleAiFeaturesInProgress
+
+            // ListItem control for toggling Gemini AI features for this endpoint
+            ListItem(
+              headlineContent = {
+                Text(
+                  controller.label,
+                  color = if (isAiFeaturesSupported) Color.Unspecified else MaterialTheme.colorScheme.outline
+                )
+              },
+              supportingContent = {
+                Text(
+                  if (isAiFeaturesSupported) {
+                    if (isAiFeaturesEnabled) {
+                      stringResource(R.string.ai_features_active_description)
+                    } else {
+                      stringResource(R.string.ai_features_disabled_description)
+                    }
+                  } else {
+                    stringResource(R.string.ai_features_unsupported_description)
+                  }
+                )
+              },
+              trailingContent = {
+                Switch(
+                  checked = isAiFeaturesEnabled,
+                  onCheckedChange = null,
+                  enabled = isToggleInteractive,
+                  thumbContent = if (isToggleAiFeaturesInProgress) {
+                    {
+                      CircularProgressIndicator(
+                        modifier = Modifier.size(SwitchDefaults.IconSize),
+                        strokeWidth = 2.dp
+                      )
+                    }
+                  } else null
+                )
+              },
+              modifier = Modifier.toggleable(
+                value = isAiFeaturesEnabled,
+                enabled = isToggleInteractive,
+                role = Role.Switch,
+                onValueChange = { enabled -> onSetAiFeaturesEnabled(controller, enabled) }
+              )
+            )
+          }
+        }
 
         // --- DOORBELL CHIME ---
         if (isDoorbell) {

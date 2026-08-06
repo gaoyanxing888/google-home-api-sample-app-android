@@ -57,6 +57,9 @@ import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.platform.LocalContext
+import coil3.ImageLoader
+import coil3.imageLoader
 import coil3.compose.AsyncImage
 import java.time.LocalDate
 import java.time.ZoneId
@@ -75,6 +78,7 @@ import java.time.format.DateTimeFormatter
 fun HomeBriefCard(
     brief: HistoryUiDataModel.HomeBriefEvent,
     onEventClick: (HomeBriefCameraEvent) -> Unit = {},
+    imageLoader: ImageLoader? = null,
     modifier: Modifier = Modifier,
 ) {
     var isExpanded by remember(brief.briefId) { mutableStateOf(false) }
@@ -145,6 +149,7 @@ fun HomeBriefCard(
                             HomeBriefThumbnail(
                                 event = event,
                                 onClick = { onEventClick(event) },
+                                imageLoader = imageLoader,
                             )
                         }
                     }
@@ -184,6 +189,7 @@ fun HomeBriefCard(
 private fun HomeBriefThumbnail(
     event: HomeBriefCameraEvent,
     onClick: () -> Unit = {},
+    imageLoader: ImageLoader? = null,
     modifier: Modifier = Modifier,
 ) {
     val errorPainter = rememberVectorPainter(Icons.Outlined.Image)
@@ -201,6 +207,7 @@ private fun HomeBriefThumbnail(
         if (imageUrl.isNotBlank()) {
             AsyncImage(
                 model = imageUrl,
+                imageLoader = imageLoader ?: LocalContext.current.imageLoader,
                 contentDescription = "Camera event thumbnail",
                 modifier = Modifier
                     .size(width = 100.dp, height = 72.dp)

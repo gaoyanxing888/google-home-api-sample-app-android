@@ -14,6 +14,8 @@ limitations under the License.
 */
 package com.example.googlehomeapisampleapp.history
 
+import android.util.Log
+
 import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
@@ -45,7 +47,6 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -62,13 +63,20 @@ import androidx.paging.LoadState
 import androidx.paging.compose.LazyPagingItems
 import androidx.paging.compose.collectAsLazyPagingItems
 import androidx.paging.compose.itemKey
+import androidx.hilt.navigation.compose.hiltViewModel
+import coil3.ImageLoader
 import coil3.compose.AsyncImage
 import com.example.googlehomeapisampleapp.viewmodel.HomeAppViewModel
 import java.time.LocalDate
 import java.time.format.DateTimeFormatter
 
+private const val TAG = "HistoryView"
+
 @Composable
-fun HistoryView(viewModel: HomeAppViewModel) {
+fun HistoryView(
+    viewModel: HomeAppViewModel,
+    historyPlayerViewModel: HistoryPlayerViewModel = hiltViewModel(),
+) {
     val historyItems = viewModel.historyFlow.collectAsLazyPagingItems()
     val selectedDevice by viewModel.selectedHistoryDeviceVM.collectAsStateWithLifecycle()
     val homeBriefs by viewModel.homeBriefs.collectAsStateWithLifecycle()
@@ -82,6 +90,8 @@ fun HistoryView(viewModel: HomeAppViewModel) {
         viewModel.clearHistorySelection()
     }
 
+    val imageLoader = historyPlayerViewModel.cameraMediaAuth.imageLoader
+
     Surface(modifier = Modifier.fillMaxSize(), color = Color.White) {
         Column {
             if (selectedDevice != null) {
@@ -92,7 +102,7 @@ fun HistoryView(viewModel: HomeAppViewModel) {
                     verticalAlignment = Alignment.CenterVertically,
                 ) {
                     Text(
-                        text = (selectedDevice?.name?.collectAsState()?.value
+                        text = (selectedDevice?.name?.collectAsStateWithLifecycle()?.value
                             ?.takeIf { it.isNotBlank() } ?: "Unknown Device") + ": History",
                         style = MaterialTheme.typography.titleLarge,
                         color = Color.Black,
@@ -105,6 +115,7 @@ fun HistoryView(viewModel: HomeAppViewModel) {
             HistoryList(
                 events = historyItems,
                 homeBriefs = homeBriefs,
+                imageLoader = imageLoader,
                 onEventSelected = { event -> viewModel.openVideoPlayer(event) },
                 onHomeBriefEventClick = { event -> viewModel.openHomeBriefVideo(event) },
             )
@@ -116,6 +127,7 @@ fun HistoryView(viewModel: HomeAppViewModel) {
 fun HistoryList(
     events: LazyPagingItems<HistoryEventUi>,
     homeBriefs: List<HistoryUiDataModel.HomeBriefEvent> = emptyList(),
+    imageLoader: ImageLoader,
     onEventSelected: (HistoryUiDataModel.CameraEvent) -> Unit,
     onHomeBriefEventClick: (HomeBriefCameraEvent) -> Unit = {},
 ) {
@@ -178,12 +190,14 @@ fun HistoryList(
                         HomeBriefCard(
                             brief = item,
                             onEventClick = { event -> onHomeBriefEventClick(event) },
+                            imageLoader = imageLoader,
                         )
                     }
                     is HistoryUiDataModel.CameraEvent -> {
                         HistoryItemRow(
                             uiModel = item,
                             errorPainter = errorPainter,
+                            imageLoader = imageLoader,
                             onClick = { onEventSelected(item) },
                         )
                     }
@@ -191,6 +205,7 @@ fun HistoryList(
                         HistoryItemRow(
                             uiModel = item,
                             errorPainter = errorPainter,
+                            imageLoader = imageLoader,
                             onClick = {},
                         )
                     }
@@ -205,6 +220,7 @@ fun HistoryList(
 fun HistoryItemRow(
     uiModel: HistoryUiDataModel,
     errorPainter: Painter,
+    imageLoader: ImageLoader,
     onClick: () -> Unit,
 ) {
     val (title, icon) = getEventMetadata(uiModel)
@@ -240,13 +256,17 @@ fun HistoryItemRow(
             if (uiModel is HistoryUiDataModel.CameraEvent) {
                 AsyncImage(
                     model = uiModel.mediaUrl.thumbnailUrl,
+                    imageLoader = imageLoader,
                     contentDescription = "Event thumbnail",
                     modifier = Modifier
                         .size(width = 80.dp, height = 60.dp)
                         .clip(RoundedCornerShape(8.dp))
                         .background(Color.LightGray),
                     contentScale = ContentScale.Crop,
-                    error = errorPainter
+                    error = errorPainter,
+                    onError = { state ->
+                        Log.w(TAG, "AsyncImage load error for ${uiModel.mediaUrl.thumbnailUrl}", state.result.throwable)
+                    }
                 )
             }
         }

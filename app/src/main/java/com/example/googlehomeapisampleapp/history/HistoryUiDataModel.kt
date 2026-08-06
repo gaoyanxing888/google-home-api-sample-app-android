@@ -181,6 +181,8 @@ fun HistoryItem.toUiDataModel(): HistoryUiDataModel {
             val detected = EVENT_TYPE_PRIORITY.firstOrNull { eventTypes?.contains(it) == true }
                 ?: CameraHistoryTrait.EventType.Unknown
 
+            Log.d("HistoryUiDataModel", "Whole HistoryItemEvent: $event")
+            Log.d("HistoryUiDataModel", "HistoryItemEvent mediaUrl: ${event.mediaUrl}")
             Log.d("HistoryUiDataModel", "CameraEvent captions: ${event.captions}")
             // Extract the short caption if it exists
             val shortCaption = event.captions?.find { it.captionType == CameraHistoryTrait.CaptionType.Short }?.captionText

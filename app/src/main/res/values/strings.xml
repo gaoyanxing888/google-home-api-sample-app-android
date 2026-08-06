@@ -67,6 +67,13 @@
   <string name="camera_settings_title">Camera Settings</string>
   <string name="camera_power_setting">Camera Power</string>
 
+  <!-- Gemini AI Features -->
+  <string name="ai_perception_title">AI &amp; Perception</string>
+  <string name="gemini_ai_features_title">Gemini AI Features</string>
+  <string name="ai_features_active_description">AI event detection &amp; captions active.\nNote: Recording must be enabled to view AI captions in camera history.</string>
+  <string name="ai_features_disabled_description">AI analysis disabled</string>
+  <string name="ai_features_unsupported_description">Not supported on this camera</string>
+
   <string name="search_home" translatable="false">Search Home</string>
   <string name="search_home_placeholder" translatable="false">Search for something...</string>
   <string name="send_description" translatable="false">Send</string>

@@ -15,8 +15,10 @@ limitations under the License.
 
 package com.example.googlehomeapisampleapp.camera
 
+import android.content.Context
 import android.util.Log
 import android.view.Surface
+import android.widget.Toast
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.example.googlehomeapisampleapp.camera.CameraStreamState.ERROR
@@ -43,7 +45,9 @@ import com.google.home.google.ChimeTrait
 import com.google.home.google.GoogleDoorbellDevice
 import com.google.home.google.ZoneManagementTrait
 import com.google.home.matter.standard.RootNodeDevice
+import dagger.hilt.android.qualifiers.ApplicationContext
 import dagger.hilt.android.lifecycle.HiltViewModel
+import javax.inject.Inject
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.Job
@@ -66,20 +70,22 @@ import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import kotlinx.coroutines.withTimeoutOrNull
-import javax.inject.Inject
 
 @HiltViewModel
 open class CameraStreamViewModel @Inject internal constructor(
+  @param:ApplicationContext private val context: Context,
   private val liveStreamPlayerFactory: LiveStreamPlayerFactory,
   private val onOffControllerFactory: OnOffControllerFactory,
   private val cameraAvStreamManagementControllerFactory: CameraAvStreamManagementControllerFactory,
   private val doorbellChimeControllerFactory: DoorbellChimeControllerFactory,
   private val recordingModeControllerFactory: RecordingModeControllerFactory,
   private val activityZoneControllerFactory: ActivityZoneControllerFactory,
+  private val videoAnalysisControllerFactory: VideoAnalysisControllerFactory,
   private val cameraTimelinePresenter: CameraTimelinePresenter,
 ) : ViewModel() {
   private val TAG = "CameraStreamViewModel"
   private val TOGGLE_WAIT_TIME = 4000L
+  private val zoneNameRegex = Regex("""^Zone\s+(\d+)$""", RegexOption.IGNORE_CASE)
 
   private var activeJobs = mutableListOf<Job>()
   private var recordingOffDebounceJob: Job? = null
@@ -189,6 +195,14 @@ open class CameraStreamViewModel @Inject internal constructor(
 
   private val _zoneUpdateStatus = MutableStateFlow<ZoneUpdateStatus>(ZoneUpdateStatus.Idle)
   val zoneUpdateStatus: StateFlow<ZoneUpdateStatus> = _zoneUpdateStatus
+
+  // Video Analysis (Gemini AI Features) Controllers state flow
+  private val _videoAnalysisControllers = MutableStateFlow<List<VideoAnalysisController>>(emptyList())
+  val videoAnalysisControllers: StateFlow<List<VideoAnalysisController>> = _videoAnalysisControllers
+
+  // Tracks in-progress state of asynchronous toggle operations for UI progress indicators
+  private val _isToggleAiFeaturesInProgress = MutableStateFlow(false)
+  val isToggleAiFeaturesInProgress: StateFlow<Boolean> = _isToggleAiFeaturesInProgress
 
   // --- UI State Flows ---
   @OptIn(ExperimentalCoroutinesApi::class)
@@ -388,10 +402,19 @@ open class CameraStreamViewModel @Inject internal constructor(
     // Use device max if available, otherwise fall back to common default (1920x1080)
     val maxX = max?.x?.toInt() ?: 1920
     val maxY = max?.y?.toInt() ?: 1080
-    val colorIndex = activityZones.value.count { it.modifiable } % ActivityZoneColorCycle.size
+    val modifiableCount = activityZones.value.count { it.modifiable }
+
+    val existingNumbers = activityZones.value
+      .filter { it.modifiable }
+      .mapNotNull { zone ->
+        zoneNameRegex.find(zone.zoneName.trim())?.let { it.groupValues[1].toIntOrNull() }
+      }
+      .toSet()
+    val nextNumber = (1..MAX_ACTIVITY_ZONES).firstOrNull { it !in existingNumbers } ?: (modifiableCount + 1)
+    val colorIndex = (nextNumber - 1).coerceAtLeast(0) % ActivityZoneColorCycle.size
 
     val zone = ActivityZone(
-      zoneName = "Zone ${activityZones.value.count { it.modifiable } + 1}",
+      zoneName = "Zone $nextNumber",
       color = ActivityZoneColorCycle[colorIndex],
       maxX = maxX,
       maxY = maxY,
@@ -417,6 +440,31 @@ open class CameraStreamViewModel @Inject internal constructor(
     viewModelScope.launch {
       _zoneUpdateStatus.value = ZoneUpdateStatus.InProgress
       _zoneUpdateStatus.value = controller.deleteZone(zoneId)
+    }
+  }
+
+  /**
+   * Toggles Gemini AI feature analysis on or off for a specific controller/endpoint.
+   *
+   * @param controller The target VideoAnalysisController endpoint.
+   * @param enabled Desired enablement state for AI features.
+   */
+  fun onSetAiFeaturesEnabled(controller: VideoAnalysisController, enabled: Boolean) {
+    // Launch coroutine to execute feature toggle asynchronously
+    viewModelScope.launch {
+      _isToggleAiFeaturesInProgress.value = true
+      try {
+        val success = controller.setAiFeaturesEnabled(enabled)
+        if (!success) {
+          Log.w(TAG, "Failed to toggle AI features enablement to $enabled for ${controller.label}")
+          Toast.makeText(context, "Failed to toggle ${controller.label}", Toast.LENGTH_SHORT).show()
+        }
+      } catch (e: Exception) {
+        Log.e(TAG, "Exception toggling AI features enablement for ${controller.label}", e)
+        Toast.makeText(context, "Error toggling ${controller.label}: ${e.localizedMessage ?: "Unknown error"}", Toast.LENGTH_SHORT).show()
+      } finally {
+        _isToggleAiFeaturesInProgress.value = false
+      }
     }
   }
 
@@ -472,6 +520,7 @@ open class CameraStreamViewModel @Inject internal constructor(
     _cameraAvStreamManagementController.value = cameraAvStreamManagementControllerFactory.create(device)
     _recordingModeController.value = recordingModeControllerFactory.create(device)
     _activityZoneController.value = activityZoneControllerFactory.create(device)
+    _videoAnalysisControllers.value = videoAnalysisControllerFactory.createAll(device)
 
     val player = liveStreamPlayerFactory.createPlayerFromDevice(device, viewModelScope, micGranted)
     _liveStreamPlayer.value = player
