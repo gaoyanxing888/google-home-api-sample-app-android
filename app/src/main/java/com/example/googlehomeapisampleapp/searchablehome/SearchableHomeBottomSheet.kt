@@ -62,6 +62,7 @@ import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import coil3.ImageLoader
 import com.example.googlehomeapisampleapp.R
 
 /**
@@ -91,6 +92,7 @@ fun SearchableHomeBottomSheetView(
     SearchableHomeBottomSheetContent(
       messages = messages,
       isSending = isSending,
+      imageLoader = viewModel.cameraMediaAuth.imageLoader,
       onSendMessage = { viewModel.sendMessage(it) },
     )
   }
@@ -105,6 +107,7 @@ internal fun SearchableHomeBottomSheetContent(
   messages: List<ChatMessage>,
   isSending: Boolean,
   onSendMessage: (String) -> Unit,
+  imageLoader: ImageLoader? = null,
 ) {
   var inputText by remember { mutableStateOf("") }
   val listState = rememberLazyListState()
@@ -133,7 +136,7 @@ internal fun SearchableHomeBottomSheetContent(
       modifier = Modifier.weight(1f).fillMaxWidth(),
       verticalArrangement = Arrangement.spacedBy(8.dp),
     ) {
-      items(messages) { message -> ChatBubble(message) }
+      items(messages) { message -> ChatBubble(message = message, imageLoader = imageLoader) }
       if (isSending) {
         item {
           ChatBubbleContainer(isOutgoing = false, isError = false) {
@@ -228,7 +231,7 @@ fun ChatBubbleContainer(
  * Handles different message types: Text (including errors) and CameraEvents.
  */
 @Composable
-fun ChatBubble(message: ChatMessage, modifier: Modifier = Modifier) {
+fun ChatBubble(message: ChatMessage, modifier: Modifier = Modifier, imageLoader: ImageLoader? = null) {
   val textColor =
     if (message.isError) {
       MaterialTheme.colorScheme.onErrorContainer
@@ -260,7 +263,7 @@ fun ChatBubble(message: ChatMessage, modifier: Modifier = Modifier) {
     } else if (message is ChatMessage.Text) {
       Text(text = message.text, color = textColor, style = MaterialTheme.typography.bodyLarge)
     } else if (message is ChatMessage.CameraEvent) {
-      SearchableHomeCameraEventView(event = message.event)
+      SearchableHomeCameraEventView(event = message.event, imageLoader = imageLoader)
     }
   }
 }

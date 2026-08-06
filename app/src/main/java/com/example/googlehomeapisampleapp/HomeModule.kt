@@ -24,6 +24,7 @@ import com.google.home.Trait
 import com.google.home.TraitFactory
 import com.google.home.google.AreaAttendanceState
 import com.google.home.google.AreaPresenceState
+import com.google.home.google.UserPresenceSettings
 import com.google.home.google.Assistant
 import com.google.home.google.AssistantBroadcast
 import com.google.home.google.AssistantFulfillment
@@ -63,7 +64,9 @@ import com.google.home.matter.standard.ExtendedColorLightDevice
 import com.google.home.matter.standard.FanControl
 import com.google.home.matter.standard.FanDevice
 import com.google.home.matter.standard.GenericSwitchDevice
+import com.google.home.matter.standard.IlluminanceMeasurement
 import com.google.home.matter.standard.LevelControl
+import com.google.home.matter.standard.LightSensorDevice
 import com.google.home.matter.standard.MediaInput
 import com.google.home.matter.standard.MediaPlayback
 import com.google.home.matter.standard.OccupancySensing
@@ -73,6 +76,8 @@ import com.google.home.matter.standard.OnOffLightDevice
 import com.google.home.matter.standard.OnOffLightSwitchDevice
 import com.google.home.matter.standard.OnOffPluginUnitDevice
 import com.google.home.matter.standard.OnOffSensorDevice
+import com.google.home.matter.standard.OtaRequestorDevice
+import com.google.home.matter.standard.OtaSoftwareUpdateRequestor
 import com.google.home.matter.standard.RootNodeDevice
 import com.google.home.matter.standard.SpeakerDevice
 import com.google.home.matter.standard.TemperatureControl
@@ -87,7 +92,17 @@ import dagger.Provides
 import dagger.hilt.InstallIn
 import dagger.hilt.components.SingletonComponent
 import kotlinx.coroutines.Dispatchers
+import okhttp3.OkHttpClient
 import javax.inject.Singleton
+import javax.inject.Qualifier
+
+@Qualifier
+@Retention(AnnotationRetention.BINARY)
+annotation class DefaultOkHttpClient
+
+@Qualifier
+@Retention(AnnotationRetention.BINARY)
+annotation class AuthenticatedImageLoader
 
 /**
  * Hilt module for providing dependencies related to the Google Home APIs.
@@ -114,11 +129,13 @@ listOf(
     GoogleDisplayDevice,
     GoogleDoorbellDevice,
     GoogleTVDevice,
+    LightSensorDevice,
     OccupancySensorDevice,
     OnOffLightDevice,
     OnOffLightSwitchDevice,
     OnOffPluginUnitDevice,
     OnOffSensorDevice,
+    OtaRequestorDevice,
     RootNodeDevice,
     SpeakerDevice,
     TemperatureSensorDevice,
@@ -134,6 +151,7 @@ listOf(
   fun provideSupportedTraits(): @JvmSuppressWildcards List<TraitFactory<out Trait>> = listOf(
       AreaAttendanceState,
       AreaPresenceState,
+      UserPresenceSettings,
       Assistant,
       AssistantBroadcast,
       AssistantFulfillment,
@@ -151,6 +169,7 @@ listOf(
       ExtendedMediaInput,
       ExtendedMediaPlayback,
       FanControl,
+      IlluminanceMeasurement,
       LevelControl,
       MediaActivityState,
       MediaInput,
@@ -158,6 +177,7 @@ listOf(
       Notification,
       OccupancySensing,
       OnOff,
+      OtaSoftwareUpdateRequestor,
       PushAvStreamTransport,
       RecordingMode,
       SearchableHome,
@@ -214,4 +234,22 @@ listOf(
   fun provideHomeClient(
     homeClientProvider: HomeClientProvider,
   ): HomeClient = homeClientProvider.getClient()
+
+  /**
+   * Provides a common [OkHttpClient] for the application.
+   */
+  @Provides
+  @Singleton
+  @DefaultOkHttpClient
+  fun provideOkHttpClient(): OkHttpClient = OkHttpClient()
+
+  /**
+   * Provides an authenticated [coil3.ImageLoader] for camera media requests.
+   */
+  @Provides
+  @Singleton
+  @AuthenticatedImageLoader
+  fun provideAuthenticatedImageLoader(
+    cameraMediaAuth: com.example.googlehomeapisampleapp.history.CameraMediaAuth,
+  ): coil3.ImageLoader = cameraMediaAuth.imageLoader
 }

@@ -16,6 +16,7 @@ limitations under the License.
 package com.example.googlehomeapisampleapp.view.devices
 
 import android.content.Intent
+import android.util.Log
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
@@ -46,6 +47,7 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -68,6 +70,8 @@ import com.example.googlehomeapisampleapp.viewmodel.HomeAppViewModel
 import com.example.googlehomeapisampleapp.viewmodel.devices.DeviceViewModel
 import com.example.googlehomeapisampleapp.viewmodel.structures.RoomViewModel
 import com.example.googlehomeapisampleapp.viewmodel.structures.StructureViewModel
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import com.example.googlehomeapisampleapp.viewmodel.ota.OtaUiState
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.launch
 
@@ -81,7 +85,8 @@ const val TAG = "DevicesView"
  */
 @Composable
 fun DevicesAccountButton(homeAppVM: HomeAppViewModel,
-                         onNavigateToUserManagement: () -> Unit = {}
+                         onNavigateToUserManagement: () -> Unit = {},
+                         onNavigateToPresenceSettings: () -> Unit = {}
 ) {
   val context = LocalContext.current
   var expanded by remember { mutableStateOf(false) }
@@ -141,6 +146,13 @@ fun DevicesAccountButton(homeAppVM: HomeAppViewModel,
           onNavigateToUserManagement()
         }
       )
+      DropdownMenuItem(
+        text = { Text("Presence Settings") },
+        onClick = {
+          expanded = false
+          onNavigateToPresenceSettings()
+        }
+      )
     }
   }
 }
@@ -164,6 +176,7 @@ fun DevicesView(
   onRequestAddHub: () -> Unit = {},
   onSearchHome: () -> Unit = {},
   onNavigateToUserManagement: () -> Unit = {},
+  onNavigateToPresenceSettings: () -> Unit = {},
 ) {
   val scope: CoroutineScope = rememberCoroutineScope()
 
@@ -209,7 +222,7 @@ fun DevicesView(
               Icon(imageVector = Icons.Default.AutoAwesome, contentDescription = "Search Home")
             }
           },
-          { DevicesAccountButton(homeAppVM, onNavigateToUserManagement) },
+          { DevicesAccountButton(homeAppVM, onNavigateToUserManagement, onNavigateToPresenceSettings) },
         ),
     )
 
@@ -234,8 +247,9 @@ fun DevicesView(
               onDismissRequest = { structurePickerExpanded = false },
             ) {
               for (structure in structureVMs) {
+                val presence by structure.presenceState.collectAsState()
                 DropdownMenuItem(
-                  text = { Text(structure.name) },
+                  text = { Text("${structure.name} ($presence)") },
                   onClick = {
                     homeAppVM.setSelectedStructure(structure)
                     structurePickerExpanded = false
@@ -314,6 +328,13 @@ fun DeviceListItem(
   val scope: CoroutineScope = rememberCoroutineScope()
   val deviceStatus: String = deviceVM.status.collectAsState().value
   val deviceName: String = deviceVM.name.collectAsState().value
+  val otaUiState by deviceVM.otaUiState.collectAsStateWithLifecycle(OtaUiState.Loading)
+
+  LaunchedEffect(otaUiState) {
+    if (otaUiState is OtaUiState.Downloading || otaUiState is OtaUiState.Installing) {
+      Log.d("DevicesView", "DeviceListItem $deviceName active OTA state: $otaUiState")
+    }
+  }
 
   Column(
     Modifier.padding(horizontal = 24.dp, vertical = 8.dp)
@@ -325,6 +346,24 @@ fun DeviceListItem(
   ) {
     Text(deviceName, fontSize = 20.sp)
     Text(deviceStatus, fontSize = 16.sp)
+    when (val state = otaUiState) {
+      is OtaUiState.Downloading -> {
+        val progress = state.progressPercent
+        Text(
+          text = if (progress != null) "Updating $progress%" else "Updating...",
+          fontSize = 12.sp,
+          color = MaterialTheme.colorScheme.primary
+        )
+      }
+      is OtaUiState.Installing -> {
+        Text(
+          text = "Installing...",
+          fontSize = 12.sp,
+          color = MaterialTheme.colorScheme.primary
+        )
+      }
+      else -> {}
+    }
   }
 }
 

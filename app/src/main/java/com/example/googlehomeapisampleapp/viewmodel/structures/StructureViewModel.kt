@@ -21,6 +21,8 @@ import androidx.lifecycle.viewModelScope
 import com.example.googlehomeapisampleapp.viewmodel.automations.AutomationViewModel
 import com.example.googlehomeapisampleapp.viewmodel.devices.DeviceViewModel
 import com.google.home.Structure
+import com.google.home.google.AreaPresenceState
+import com.google.home.google.AreaPresenceStateTrait
 import com.google.home.createRoom
 import com.google.home.deleteRoom
 import com.google.home.moveDevicesToRoom
@@ -37,6 +39,7 @@ class StructureViewModel(val structure: Structure) : ViewModel() {
   val deviceVMsWithoutRooms: MutableStateFlow<List<DeviceViewModel>> =
     MutableStateFlow(mutableListOf())
   val automationVMs: MutableStateFlow<List<AutomationViewModel>> = MutableStateFlow(mutableListOf())
+  val presenceState: MutableStateFlow<String> = MutableStateFlow("--")
 
   init {
 
@@ -44,6 +47,7 @@ class StructureViewModel(val structure: Structure) : ViewModel() {
     viewModelScope.launch { subscribeToRooms() }
     viewModelScope.launch { subscribeToDevices() }
     viewModelScope.launch { subscribeToAutomations() }
+    viewModelScope.launch { subscribeToPresence() }
   }
 
   private suspend fun subscribeToRooms() {
@@ -88,6 +92,30 @@ class StructureViewModel(val structure: Structure) : ViewModel() {
       }
       // Store the ViewModels:
       this.automationVMs.emit(automationVMs)
+    }
+  }
+
+  private suspend fun subscribeToPresence() {
+    if (structure.has(AreaPresenceState)) {
+      try {
+        structure.trait(AreaPresenceState).collect { trait ->
+          presenceState.emit(getPresenceStatusString(trait.presenceState))
+        }
+      } catch (e: Exception) {
+        Log.e(TAG, "Error subscribing to presence: ${e.message}", e)
+        presenceState.emit("Error")
+      }
+    } else {
+      presenceState.emit("Unsupported")
+    }
+  }
+
+  private fun getPresenceStatusString(state: AreaPresenceStateTrait.PresenceState?): String {
+    return when (state) {
+      AreaPresenceStateTrait.PresenceState.PresenceStateOccupied -> "Home"
+      AreaPresenceStateTrait.PresenceState.PresenceStateVacant -> "Away"
+      AreaPresenceStateTrait.PresenceState.PresenceStateUnspecified -> "Unspecified"
+      else -> "Unknown"
     }
   }
 

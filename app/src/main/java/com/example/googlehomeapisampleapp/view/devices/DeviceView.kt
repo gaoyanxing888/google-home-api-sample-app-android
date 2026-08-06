@@ -88,6 +88,7 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.example.googlehomeapisampleapp.MainActivity
 import com.example.googlehomeapisampleapp.camera.CameraStreamView
 import com.example.googlehomeapisampleapp.camera.CameraStreamViewModel
+import com.example.googlehomeapisampleapp.camera.familiarface.FamiliarFaceView
 import com.example.googlehomeapisampleapp.extension.thermostat.getCoolingSetpoint
 import com.example.googlehomeapisampleapp.extension.thermostat.getHeatingSetpoint
 import com.example.googlehomeapisampleapp.extension.thermostat.getMaxCoolSetpointLimit
@@ -105,6 +106,7 @@ import com.example.googlehomeapisampleapp.extension.thermostat.setOccupiedHeatin
 import com.example.googlehomeapisampleapp.viewmodel.HomeAppViewModel
 import com.example.googlehomeapisampleapp.viewmodel.devices.BasicInformationUiState
 import com.example.googlehomeapisampleapp.viewmodel.devices.DeviceViewModel
+import com.example.googlehomeapisampleapp.viewmodel.ota.OtaUiState
 import com.google.home.ConnectivityState
 import com.google.home.DeviceType
 import com.google.home.HomeException
@@ -234,6 +236,19 @@ fun DeviceView(homeAppVM: HomeAppViewModel) {
       if (isCameraDevice || isDoorbellDevice) {
         Surface(modifier = Modifier.fillMaxSize()) {
           key(vm.id) {
+            var showFamiliarFaceScreen by remember { mutableStateOf(false) }
+            if (showFamiliarFaceScreen) {
+              val activeStructureVM by homeAppVM.selectedStructureVM.collectAsStateWithLifecycle()
+              val structureIdStr = activeStructureVM?.structure?.id?.id ?: ""
+              if (structureIdStr.isEmpty()) {
+                Log.w("DeviceView", "Warning: Structure ID is empty, Familiar Face flow might fail.")
+              }
+              // Render the Familiar Face view and handle back navigation locally
+              FamiliarFaceView(
+                structureId = structureIdStr,
+                onNavigateBack = { showFamiliarFaceScreen = false }
+              )
+            } else {
             val cameraVm: CameraStreamViewModel = hiltViewModel(key = vm.id.toString())
             val lifecycleOwner = LocalLifecycleOwner.current
             val currentCameraVm by rememberUpdatedState(cameraVm)
@@ -287,6 +302,10 @@ fun DeviceView(homeAppVM: HomeAppViewModel) {
             val twoDCartesianMax by cameraVm.twoDCartesianMax.collectAsStateWithLifecycle()
             val zoneUpdateStatus by cameraVm.zoneUpdateStatus.collectAsStateWithLifecycle()
 
+            // AI Features
+            val videoAnalysisControllers by cameraVm.videoAnalysisControllers.collectAsStateWithLifecycle()
+            val isToggleAiFeaturesInProgress by cameraVm.isToggleAiFeaturesInProgress.collectAsStateWithLifecycle()
+
             CameraStreamView(
               playerState = playerState,
               isTalkbackSupported = isTalkbackSupported,
@@ -326,6 +345,15 @@ fun DeviceView(homeAppVM: HomeAppViewModel) {
               onAddActivityZone = { cameraVm.addActivityZone() },
               onDeleteActivityZone = { zoneId -> cameraVm.deleteActivityZone(zoneId) },
 
+              // Familiar Face
+              onNavigateToFamiliarFace = {
+                showFamiliarFaceScreen = true
+              },
+
+              // AI Features
+              videoAnalysisControllers = videoAnalysisControllers,
+              isToggleAiFeaturesInProgress = isToggleAiFeaturesInProgress,
+              onSetAiFeaturesEnabled = cameraVm::onSetAiFeaturesEnabled,
               paddingValues = PaddingValues(0.dp),
               onRetry = { cameraVm.restartInitialization() },
               onSetAudioRecording = {cameraVm.setAudioRecording(it) },
@@ -333,6 +361,7 @@ fun DeviceView(homeAppVM: HomeAppViewModel) {
               onSurfaceDestroyed = { cameraVm.onSurfaceDestroyed() },
               onShowSnackbar = { message -> Log.d("CameraStream", message) },
             )
+            }
           }
         }
       } else {
@@ -436,12 +465,60 @@ fun DeviceView(homeAppVM: HomeAppViewModel) {
 }
 
 @Composable
+fun DeviceOtaStatusCard(otaUiState: OtaUiState) {
+  LaunchedEffect(otaUiState) {
+    if (otaUiState !is OtaUiState.Loading) {
+      Log.d("DeviceView", "DeviceOtaStatusCard state changed: $otaUiState")
+    }
+  }
+
+  val versionString = when (otaUiState) {
+    is OtaUiState.UpToDate -> otaUiState.currentVersionString
+    is OtaUiState.Downloading -> otaUiState.currentVersionString
+    is OtaUiState.Installing -> otaUiState.currentVersionString
+    is OtaUiState.Deferred -> otaUiState.currentVersionString
+    is OtaUiState.Failed -> otaUiState.currentVersionString
+    else -> null
+  }
+
+  val isNonIdleState = otaUiState !is OtaUiState.UpToDate && otaUiState !is OtaUiState.Loading
+  val hasVersionInfo = !versionString.isNullOrBlank()
+
+  // Hide card for devices with no active update and no software version info available
+  if (!isNonIdleState && !hasVersionInfo) {
+    return
+  }
+
+  val statusText = when (otaUiState) {
+    is OtaUiState.UpToDate -> if (hasVersionInfo) "Up to Date ($versionString)" else "Up to Date"
+    is OtaUiState.Downloading -> {
+      val percentText = if (otaUiState.progressPercent != null) " (${otaUiState.progressPercent}%)" else ""
+      val verText = if (hasVersionInfo) " [$versionString]" else ""
+      "Downloading$percentText$verText"
+    }
+    is OtaUiState.Installing -> "Installing..."
+    is OtaUiState.Deferred -> "Deferred: ${otaUiState.reason}"
+    is OtaUiState.Failed -> "Failed (Restored)"
+    is OtaUiState.Checking -> "Checking..."
+    is OtaUiState.Loading -> "Loading..."
+  }
+
+  Text(
+    text = "Software Update: $statusText",
+    fontSize = 14.sp,
+    color = MaterialTheme.colorScheme.onSurfaceVariant
+  )
+}
+
+@Composable
 fun ControlListComponent(homeAppVM: HomeAppViewModel) {
 
   val deviceVM: DeviceViewModel = homeAppVM.selectedDeviceVM.collectAsState().value ?: return
   val deviceType: DeviceType by deviceVM.type.collectAsStateWithLifecycle()
   val deviceTypeName: String by deviceVM.typeName.collectAsStateWithLifecycle()
   val deviceTraits: List<Trait> = deviceVM.traits.collectAsState().value
+  val otaUiState by deviceVM.otaUiState.collectAsStateWithLifecycle(OtaUiState.Loading)
+  val isControlEnabled by deviceVM.isControlEnabled.collectAsStateWithLifecycle(true)
 
   Column(
     Modifier
@@ -449,15 +526,23 @@ fun ControlListComponent(homeAppVM: HomeAppViewModel) {
       .fillMaxWidth()
   ) {
     Text(deviceTypeName, fontSize = 16.sp, fontWeight = FontWeight.SemiBold)
+    DeviceOtaStatusCard(otaUiState = otaUiState)
+    if (!isControlEnabled) {
+      Text(
+        text = "Device controls paused during software update",
+        color = MaterialTheme.colorScheme.error,
+        fontSize = 14.sp
+      )
+    }
   }
 
   for (trait in deviceTraits) {
-    ControlListItem(trait, deviceType)
+    ControlListItem(trait, deviceType, enabled = isControlEnabled)
   }
 }
 
 @Composable
-fun ControlListItem(trait: Trait, type: DeviceType) {
+fun ControlListItem(trait: Trait, type: DeviceType, enabled: Boolean = true) {
   val scope: CoroutineScope = rememberCoroutineScope()
 
   // Make connectivity reactive by keying off the type changes
@@ -466,6 +551,7 @@ fun ControlListItem(trait: Trait, type: DeviceType) {
     type.metadata.sourceConnectivity.connectivityState == ConnectivityState.ONLINE ||
             type.metadata.sourceConnectivity.connectivityState == ConnectivityState.PARTIALLY_ONLINE
   }
+  val isInteractive = enabled && isConnected
 
   Box(Modifier.padding(horizontal = 24.dp, vertical = 8.dp)) {
     when (trait) {
@@ -486,7 +572,7 @@ fun ControlListItem(trait: Trait, type: DeviceType) {
               }
             }
           },
-          enabled = isConnected
+          enabled = isInteractive
         )
       }
 
@@ -537,7 +623,7 @@ fun ControlListItem(trait: Trait, type: DeviceType) {
                     }
                   }
                 },
-                isEnabled = isConnected
+                isEnabled = isInteractive
               )
             }
           } else {
@@ -561,7 +647,7 @@ fun ControlListItem(trait: Trait, type: DeviceType) {
                   }
                 }
               },
-              isEnabled = isConnected
+              isEnabled = isInteractive
             )
           }
         }
@@ -584,7 +670,7 @@ fun ControlListItem(trait: Trait, type: DeviceType) {
       is Thermostat -> {
         ThermostatControl(
           trait = trait,
-          isConnected = isConnected,
+          isConnected = isInteractive,
           scope = scope
         )
       }
@@ -702,28 +788,28 @@ fun ControlListItem(trait: Trait, type: DeviceType) {
               }
             }
           },
-          enabled = isConnected && !isProcessing
+          enabled = isInteractive && !isProcessing
         )
       }
 
       is FanControl -> {
         FanControlComponent(
           trait = trait,
-          isConnected = isConnected
+          isConnected = isInteractive
         )
       }
 
       is MediaPlayback -> {
         MediaPlaybackControlComponent(
           trait = trait,
-          isConnected = isConnected
+          isConnected = isInteractive
         )
       }
 
       is WindowCovering -> {
         WindowCoveringControlComponent(
           trait = trait,
-          isConnected = isConnected
+          isConnected = isInteractive
         )
       }
 

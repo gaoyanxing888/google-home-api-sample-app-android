@@ -80,6 +80,7 @@ import com.example.googlehomeapisampleapp.view.automations.StarterView
 import com.example.googlehomeapisampleapp.view.devices.DeviceView
 import com.example.googlehomeapisampleapp.view.devices.DevicesView
 import com.example.googlehomeapisampleapp.view.hubs.HubDiscoveryView
+import com.example.googlehomeapisampleapp.view.settings.PresenceSettingsView
 import com.example.googlehomeapisampleapp.view.usermanagement.UserManagementView
 import com.example.googlehomeapisampleapp.viewmodel.HomeAppViewModel
 import com.example.googlehomeapisampleapp.viewmodel.automations.ActionViewModel
@@ -90,7 +91,9 @@ import com.example.googlehomeapisampleapp.viewmodel.automations.StarterViewModel
 import com.example.googlehomeapisampleapp.viewmodel.devices.DeviceViewModel
 import com.example.googlehomeapisampleapp.viewmodel.structures.RoomViewModel
 import com.example.googlehomeapisampleapp.viewmodel.usermanagement.UserManagementViewModel
+import com.example.googlehomeapisampleapp.viewmodel.ota.OtaUiState
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.launch
 
 /**
@@ -120,6 +123,7 @@ fun HomeAppView(homeAppVM: HomeAppViewModel) {
   val launchHubDiscovery = remember { mutableStateOf(false) }
   val showSearchableHome = remember { mutableStateOf(false) }
   val showUserManagement = remember { mutableStateOf(false) }
+  val showPresenceSettings = remember { mutableStateOf(false) }
   val selectedStructureVM by homeAppVM.selectedStructureVM.collectAsState()
 
   val showQrCodeScanner by homeAppVM.showQrCodeScanner.collectAsStateWithLifecycle()
@@ -202,7 +206,17 @@ fun HomeAppView(homeAppVM: HomeAppViewModel) {
       val showOtaScreen by homeAppVM.showOtaScreen.collectAsStateWithLifecycle()
 
       if (showOtaScreen) {
+        val otaUiState by remember(selectedDeviceVM) {
+          selectedDeviceVM?.otaUiState ?: flowOf(OtaUiState.Loading)
+        }.collectAsStateWithLifecycle(OtaUiState.Loading)
+
+        val deviceName by remember(selectedDeviceVM) {
+          selectedDeviceVM?.name ?: flowOf("Camera")
+        }.collectAsStateWithLifecycle("Camera")
+
         OtaUpdateScreen(
+          deviceName = deviceName,
+          otaUiState = otaUiState,
           onComplete = { homeAppVM.closeOtaScreen() },
           paddingValues = PaddingValues(),
         )
@@ -232,6 +246,13 @@ fun HomeAppView(homeAppVM: HomeAppViewModel) {
             )
             return@Column
           }
+        if (showPresenceSettings.value) {
+          PresenceSettingsView(
+            homeAppVM = homeAppVM,
+            onBack = { showPresenceSettings.value = false }
+          )
+          return@Column
+        }
         if (selectedDeviceVM != null) {
           DeviceView(homeAppVM)
         }
@@ -262,10 +283,16 @@ fun HomeAppView(homeAppVM: HomeAppViewModel) {
                 launchHubDiscovery.value = true
               },
               onSearchHome = { showSearchableHome.value = true },
-              onNavigateToUserManagement = { showUserManagement.value = true }
+              onNavigateToUserManagement = { showUserManagement.value = true },
+              onNavigateToPresenceSettings = { showPresenceSettings.value = true }
             )
 
-          HomeAppViewModel.NavigationTab.AUTOMATIONS -> AutomationsView(homeAppVM)
+          HomeAppViewModel.NavigationTab.AUTOMATIONS ->
+            AutomationsView(
+              homeAppVM = homeAppVM,
+              onNavigateToUserManagement = { showUserManagement.value = true },
+              onNavigateToPresenceSettings = { showPresenceSettings.value = true }
+            )
 
           HomeAppViewModel.NavigationTab.HISTORY -> {
             androidx.compose.material3.Surface(

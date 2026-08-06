@@ -15,9 +15,14 @@ limitations under the License.
 
 package com.example.googlehomeapisampleapp.history
 
+import android.util.Log
 import android.view.ViewGroup
 import android.widget.FrameLayout
 import androidx.activity.compose.BackHandler
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
+import androidx.activity.result.IntentSenderRequest
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.annotation.OptIn
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.fadeIn
@@ -70,8 +75,15 @@ import androidx.media3.common.PlaybackException
 import androidx.media3.common.Player
 import androidx.media3.common.util.UnstableApi
 import androidx.media3.exoplayer.ExoPlayer
+import androidx.media3.exoplayer.dash.DashMediaSource
+import androidx.media3.exoplayer.dash.DefaultDashChunkSource
+import androidx.media3.exoplayer.hls.HlsMediaSource
+import androidx.media3.exoplayer.source.ProgressiveMediaSource
 import androidx.media3.ui.PlayerView
+import androidx.hilt.navigation.compose.hiltViewModel
 import coil3.compose.AsyncImage
+
+private const val TAG = "HistoryVideoPlayer"
 
 /** Playback state for [HistoryVideoPlayer]. */
 enum class VideoPlayerState {
@@ -101,10 +113,36 @@ enum class VideoPlayerState {
 fun HistoryVideoPlayer(
     mediaUrl: MediaUrl,
     modifier: Modifier = Modifier,
+    viewModel: HistoryPlayerViewModel = hiltViewModel(),
 ) {
     val hasVideo = mediaUrl.hasVideo
     val imageUrl = mediaUrl.previewUrl.ifBlank { mediaUrl.thumbnailUrl }
     val hasImage = imageUrl.isNotBlank()
+
+    val isAuthGranted by viewModel.isAuthGranted.collectAsStateWithLifecycle()
+    val pendingAuthIntent by viewModel.pendingAuthIntent.collectAsStateWithLifecycle()
+    val authError by viewModel.authError.collectAsStateWithLifecycle()
+
+    val authLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.StartIntentSenderForResult()
+    ) { result ->
+        Log.i(TAG, "OAuth resolution completed. Result code: ${result.resultCode}")
+        if (result.resultCode == android.app.Activity.RESULT_OK) {
+            viewModel.handleAuthResult(result.data)
+        } else {
+            viewModel.onAuthFailed()
+        }
+    }
+
+    LaunchedEffect(pendingAuthIntent) {
+        pendingAuthIntent?.let {
+            authLauncher.launch(IntentSenderRequest.Builder(it).build())
+        }
+    }
+
+    LaunchedEffect(Unit) {
+        viewModel.checkAndRequestAuth()
+    }
 
     Box(
         modifier = modifier
@@ -114,47 +152,78 @@ fun HistoryVideoPlayer(
             .background(Color.Black),
         contentAlignment = Alignment.Center,
     ) {
-        when {
-            // No media available
-            !hasVideo && !hasImage -> {
-                Icon(
-                    imageVector = Icons.Outlined.Videocam,
-                    contentDescription = "No media available",
-                    modifier = Modifier.size(64.dp),
-                    tint = Color.DarkGray,
-                )
-            }
-
-            // Still image — show snapshot captured in Still Images recording mode
-            !hasVideo && hasImage -> {
-                AsyncImage(
-                    model = imageUrl,
-                    contentDescription = "Event snapshot",
-                    modifier = Modifier.fillMaxSize(),
-                    contentScale = ContentScale.Fit,
-                )
+        if (authError != null) {
+            Column(
+                horizontalAlignment = Alignment.CenterHorizontally,
+                modifier = Modifier.padding(16.dp)
+            ) {
                 Text(
-                    text = "Still Image",
+                    text = authError ?: "Unknown error",
                     color = Color.White,
-                    style = MaterialTheme.typography.labelSmall,
+                    style = MaterialTheme.typography.bodyMedium,
+                )
+                Icon(
+                    imageVector = Icons.Outlined.Refresh,
+                    contentDescription = "Retry authentication",
+                    tint = Color.White,
                     modifier = Modifier
-                        .align(Alignment.BottomStart)
-                        .padding(8.dp)
-                        .background(
-                            color = Color.Black.copy(alpha = 0.5f),
-                            shape = RoundedCornerShape(4.dp),
-                        )
-                        .padding(horizontal = 6.dp, vertical = 2.dp)
+                        .padding(top = 16.dp)
+                        .size(32.dp)
+                        .clickable { viewModel.checkAndRequestAuth() },
                 )
             }
+        } else if (!isAuthGranted) {
+            CircularProgressIndicator(
+                color = Color.White,
+                strokeWidth = 3.dp,
+                modifier = Modifier.size(48.dp),
+            )
+        } else {
+            when {
+                // No media available
+                !hasVideo && !hasImage -> {
+                    Icon(
+                        imageVector = Icons.Outlined.Videocam,
+                        contentDescription = "No media available",
+                        modifier = Modifier.size(64.dp),
+                        tint = Color.DarkGray,
+                    )
+                }
 
-            // Video available — play with audio
-            else -> {
-                VideoPlayerContent(
-                    mp4Url = mediaUrl.mp4DownloadUrl,
-                    dashManifestUrl = mediaUrl.dashManifestUrl,
-                    hlsUrl = mediaUrl.hlsMasterPlaylistUrl,
-                )
+                // Still image — show snapshot captured in Still Images recording mode
+                !hasVideo && hasImage -> {
+                    AsyncImage(
+                        model = imageUrl,
+                        contentDescription = "Event snapshot",
+                        imageLoader = viewModel.cameraMediaAuth.imageLoader,
+                        modifier = Modifier.fillMaxSize(),
+                        contentScale = ContentScale.Fit,
+                        onError = { state ->
+                            Log.w(TAG, "AsyncImage load error for $imageUrl", state.result.throwable)
+                        }
+                    )
+                    Text(
+                        text = "Still Image",
+                        color = Color.White,
+                        style = MaterialTheme.typography.labelSmall,
+                        modifier = Modifier
+                            .align(Alignment.BottomStart)
+                            .padding(8.dp)
+                            .background(
+                                color = Color.Black.copy(alpha = 0.5f),
+                                shape = RoundedCornerShape(4.dp),
+                            )
+                            .padding(horizontal = 6.dp, vertical = 2.dp)
+                    )
+                }
+
+                // Video available — play with audio
+                else -> {
+                    VideoPlayerContent(
+                        mediaUrl = mediaUrl,
+                        cameraMediaAuth = viewModel.cameraMediaAuth,
+                    )
+                }
             }
         }
     }
@@ -167,15 +236,12 @@ fun HistoryVideoPlayer(
 @OptIn(UnstableApi::class)
 @Composable
 private fun VideoPlayerContent(
-    mp4Url: String,
-    dashManifestUrl: String,
-    hlsUrl: String,
+    mediaUrl: MediaUrl,
+    cameraMediaAuth: CameraMediaAuth,
 ) {
     val context = LocalContext.current
     val lifecycleOwner = LocalLifecycleOwner.current
-    val currentMp4Url by rememberUpdatedState(mp4Url)
-    val currentDashUrl by rememberUpdatedState(dashManifestUrl)
-    val currentHlsUrl by rememberUpdatedState(hlsUrl)
+    val currentMediaUrl by rememberUpdatedState(mediaUrl)
 
     var playerState by remember { mutableStateOf(VideoPlayerState.IDLE) }
     var errorMessage by remember { mutableStateOf<String?>(null) }
@@ -198,12 +264,28 @@ private fun VideoPlayerContent(
         }
     }
 
-    fun loadMediaItem(url: String, mimeType: String) {
+    val (dusiAuthenticatedDataSourceFactory, chunkDataSourceFactory) = remember(cameraMediaAuth, mediaUrl) {
+        cameraMediaAuth.createDataSourceFactories()
+    }
+
+    fun loadMediaSource(url: String, mimeType: String) {
         val mediaItem = MediaItem.Builder()
             .setUri(url.toUri())
             .setMimeType(mimeType)
             .build()
-        exoPlayer.setMediaItem(mediaItem)
+
+        val mediaSource = when (mimeType) {
+            MimeTypes.APPLICATION_MPD -> DashMediaSource.Factory(
+                DefaultDashChunkSource.Factory(chunkDataSourceFactory),
+                dusiAuthenticatedDataSourceFactory
+            ).createMediaSource(mediaItem)
+            MimeTypes.APPLICATION_M3U8 -> HlsMediaSource.Factory(dusiAuthenticatedDataSourceFactory)
+                .createMediaSource(mediaItem)
+            else -> ProgressiveMediaSource.Factory(dusiAuthenticatedDataSourceFactory)
+                .createMediaSource(mediaItem)
+        }
+
+        exoPlayer.setMediaSource(mediaSource)
         exoPlayer.prepare()
     }
 
@@ -220,15 +302,15 @@ private fun VideoPlayerContent(
         errorMessage = null
 
         when {
-            currentMp4Url.isNotBlank() ->
-                loadMediaItem(currentMp4Url, MimeTypes.VIDEO_MP4)
-            currentDashUrl.isNotBlank() -> {
+            currentMediaUrl.mp4DownloadUrl.isNotBlank() ->
+                loadMediaSource(currentMediaUrl.mp4DownloadUrl, MimeTypes.VIDEO_MP4)
+            currentMediaUrl.dashManifestUrl.isNotBlank() -> {
                 usingDash = true
-                loadMediaItem(currentDashUrl, MimeTypes.APPLICATION_MPD)
+                loadMediaSource(currentMediaUrl.dashManifestUrl, MimeTypes.APPLICATION_MPD)
             }
-            currentHlsUrl.isNotBlank() -> {
+            currentMediaUrl.hlsMasterPlaylistUrl.isNotBlank() -> {
                 usingHls = true
-                loadMediaItem(currentHlsUrl, MimeTypes.APPLICATION_M3U8)
+                loadMediaSource(currentMediaUrl.hlsMasterPlaylistUrl, MimeTypes.APPLICATION_M3U8)
             }
             else -> playerState = VideoPlayerState.IDLE
         }
@@ -250,24 +332,24 @@ private fun VideoPlayerContent(
             override fun onPlayerError(error: PlaybackException) {
                 // Attempt fallback URLs in order: MP4 → DASH → HLS
                 when {
-                    !usingDash && !usingHls && currentDashUrl.isNotBlank() -> {
+                    !usingDash && !usingHls && currentMediaUrl.dashManifestUrl.isNotBlank() -> {
                         usingDash = true
                         playerState = VideoPlayerState.LOADING
                         errorMessage = null
-                        loadMediaItem(currentDashUrl, MimeTypes.APPLICATION_MPD)
+                        loadMediaSource(currentMediaUrl.dashManifestUrl, MimeTypes.APPLICATION_MPD)
                     }
-                    !usingDash && !usingHls && currentHlsUrl.isNotBlank() -> {
+                    !usingDash && !usingHls && currentMediaUrl.hlsMasterPlaylistUrl.isNotBlank() -> {
                         usingHls = true
                         playerState = VideoPlayerState.LOADING
                         errorMessage = null
-                        loadMediaItem(currentHlsUrl, MimeTypes.APPLICATION_M3U8)
+                        loadMediaSource(currentMediaUrl.hlsMasterPlaylistUrl, MimeTypes.APPLICATION_M3U8)
                     }
-                    usingDash && !usingHls && currentHlsUrl.isNotBlank() -> {
+                    usingDash && !usingHls && currentMediaUrl.hlsMasterPlaylistUrl.isNotBlank() -> {
                         usingDash = false
                         usingHls = true
                         playerState = VideoPlayerState.LOADING
                         errorMessage = null
-                        loadMediaItem(currentHlsUrl, MimeTypes.APPLICATION_M3U8)
+                        loadMediaSource(currentMediaUrl.hlsMasterPlaylistUrl, MimeTypes.APPLICATION_M3U8)
                     }
                     else -> {
                         playerState = VideoPlayerState.ERROR
@@ -280,7 +362,7 @@ private fun VideoPlayerContent(
         onDispose { exoPlayer.removeListener(listener) }
     }
 
-    LaunchedEffect(mp4Url, dashManifestUrl, hlsUrl) {
+    LaunchedEffect(mediaUrl) {
         startPlayback()
     }
 
