@@ -10,11 +10,11 @@ plugins {
 }
 
 android {
-  namespace = "com.example.googlehomeapisampleapp"
+  namespace = "com.gletest.googlehomeapisampleapp"
   compileSdk = 36
 
   defaultConfig {
-    applicationId = "com.example.googlehomeapisampleapp"
+    applicationId = "com.gletest.googlehomeapisampleapp"
     minSdk = 29
     targetSdk = 36
     versionCode = 44

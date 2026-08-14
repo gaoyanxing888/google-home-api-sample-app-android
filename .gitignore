@@ -1,4 +1,5 @@
 *.iml
+.idea/
 .gradle
 /local.properties
 /.idea/vcs.xml
@@ -16,4 +17,5 @@
 /release
 .externalNativeBuild
 .cxx
+gradle/gradle-daemon-jvm.properties
 local.properties
